@@ -1,5 +1,14 @@
 # Setup Guide
 
+## Fork access policy
+
+Build this fork's add-on to use its configurable access rights. See
+[Access control](ACCESS-CONTROL.md) for the JSON settings and installation steps.
+Reading/searching are always available; attachment downloads and draft
+preparation default to enabled; sending and mailbox changes default to disabled.
+Previously signed upstream XPIs linked below do not include this policy.
+MCP is optional; CLI users need only the CLI, bridge, and add-on.
+
 ## Architecture
 
 ```
@@ -177,6 +186,6 @@ Environment variables override config file values:
 - Try restarting the bridge, then reload the extension
 
 ### Folder counts show 0
-- Run `tb sync --all` to trigger IMAP refresh
+- Use Thunderbird's **Get Messages** command; `tb sync` cannot trigger IMAP refresh
 - Some folders need to be opened in Thunderbird at least once
 - Counts update after sync completes

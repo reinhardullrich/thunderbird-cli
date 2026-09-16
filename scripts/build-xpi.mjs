@@ -11,15 +11,26 @@
  */
 
 import AdmZip from "adm-zip";
-import { readFileSync, mkdirSync, existsSync, statSync } from "fs";
+import { readFileSync, writeFileSync, chmodSync, mkdirSync, existsSync, statSync } from "fs";
 import { join, dirname, relative } from "path";
 import { fileURLToPath } from "url";
 import { readdirSync } from "fs";
+import { parseArgs } from "node:util";
+import vm from "node:vm";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const EXT_DIR = join(REPO_ROOT, "extension");
 const DIST_DIR = join(REPO_ROOT, "dist");
+
+const { values } = parseArgs({ options: { "access-config": { type: "string" } } });
+const policyContext = vm.createContext({});
+vm.runInContext(readFileSync(join(EXT_DIR, "src/access-config.js"), "utf8"), policyContext);
+if (values["access-config"]) {
+  policyContext.TB_ACCESS_CONFIG = JSON.parse(readFileSync(values["access-config"], "utf8"));
+}
+vm.runInContext(readFileSync(join(EXT_DIR, "src/access-control.js"), "utf8"), policyContext);
+const policy = vm.runInContext("ACCESS_POLICY", policyContext);
 
 // ─── Load manifest ─────────────────────────────────────────────────
 
@@ -30,6 +41,7 @@ if (!existsSync(manifestPath)) {
 }
 
 const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+manifest.permissions = vm.runInContext("accessPermissions(ACCESS_POLICY)", policyContext);
 const { name, version } = manifest;
 
 if (!name || !version) {
@@ -38,6 +50,7 @@ if (!name || !version) {
 }
 
 console.log(`Building ${name} v${version}`);
+console.log(`  access policy:    ${JSON.stringify(policy)}`);
 console.log(`  manifest_version: ${manifest.manifest_version}`);
 console.log(
   `  min Thunderbird:  ${manifest.browser_specific_settings?.gecko?.strict_min_version || "unknown"}`
@@ -86,14 +99,20 @@ const xpiPath = join(DIST_DIR, xpiName);
 
 const zip = new AdmZip();
 for (const f of files) {
-  const data = readFileSync(f.path);
+  let data = readFileSync(f.path);
+  if (f.rel === "manifest.json") data = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
+  if (f.rel === "src/access-config.js") {
+    data = Buffer.from(`globalThis.TB_ACCESS_CONFIG = Object.freeze(${JSON.stringify(policy)});\n`);
+  }
   // Use forward-slash path separators (ZIP standard)
   const zipPath = f.rel.replace(/\\/g, "/");
   // Place files at the ZIP root (no leading directory)
   zip.addFile(zipPath, data);
 }
 
-zip.writeZip(xpiPath);
+// AdmZip.writeZip chmods the result to 0666, overriding the caller's umask.
+writeFileSync(xpiPath, zip.toBuffer(), { mode: 0o600 });
+chmodSync(xpiPath, 0o600);
 
 const finalSize = statSync(xpiPath).size;
 console.log(`\n✓ Built ${xpiName}`);

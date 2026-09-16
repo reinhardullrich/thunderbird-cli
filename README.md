@@ -1,6 +1,16 @@
 # thunderbird-cli
 
-> Give Claude (and other AI agents) full access to your email through Mozilla Thunderbird.
+> Read and search Thunderbird email through a CLI, with optional MCP and configurable action permissions.
+
+## This fork
+
+This fork adds [configurable access rights](docs/ACCESS-CONTROL.md), plus the
+correctness and transport fixes listed in [Unreleased changes](CHANGELOG.md).
+Reading/searching are always available. Attachment downloads and unsent draft
+preparation default to enabled; sending and changes to existing mail default to
+disabled. Copy `access.example.json`, customize it, and build your own add-on.
+Run `tb access` to check what the installed add-on permits. MCP is optional.
+Upstream signed binaries linked below do not contain this fork's changes.
 
 [![tests](https://github.com/vitalio-sh/thunderbird-cli/actions/workflows/test.yml/badge.svg)](https://github.com/vitalio-sh/thunderbird-cli/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

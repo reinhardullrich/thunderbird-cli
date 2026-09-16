@@ -1,6 +1,7 @@
 node_modules/
 .DS_Store
 cli/config.json
+access.local.json
 
 # Build output — exclude dist/ except for signed releases
 dist/*

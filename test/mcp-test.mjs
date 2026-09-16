@@ -511,6 +511,30 @@ console.log("\n\x1b[1mError handling\x1b[0m");
 const unknownTool = await client.callTool("nonexistent_tool", {});
 test("unknown tool returns error", unknownTool, (r) => r.error?.includes("Unknown tool"));
 
+for (const args of [
+  { messageIds: [1], operation: 'delete', permanent: true, confirm: 'false' },
+  { messageIds: [1], operation: 'delete', permanent: 'false', confirm: true },
+  { operation: 'delete', permanent: true, confirm: true },
+]) {
+  const invalid = await client.send('tools/call', { name: 'email_archive', arguments: args });
+  test('MCP validates destructive input types/required fields', invalid,
+    r => r.result?.isError === true && JSON.parse(r.result.content[0].text).code === 'INVALID_ARGS');
+}
+for (const [name, args] of [
+  ['email_read', { messageId: 1.5 }],
+  ['email_archive', { messageIds: [-1], operation: 'delete', permanent: true, confirm: true }],
+  ['email_list', { folderId: 'test', offset: -1 }],
+  ['email_read', { messageId: 1, maxBody: -1 }],
+]) {
+  const invalid = await client.send('tools/call', { name, arguments: args });
+  test('MCP rejects invalid IDs/counts', invalid,
+    r => r.result?.isError === true && JSON.parse(r.result.content[0].text).code === 'INVALID_ARGS');
+}
+const missingDestination = await client.send('tools/call', {
+  name: 'email_archive', arguments: { messageIds: [1], operation: 'move' },
+});
+test('MCP flags handler validation errors with isError', missingDestination, r => r.result?.isError === true);
+
 // Summary
 console.log(`\n\x1b[1m${"─".repeat(40)}\x1b[0m`);
 console.log(

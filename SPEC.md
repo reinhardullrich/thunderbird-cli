@@ -1,5 +1,13 @@
 # thunderbird-cli — Technical Specification
 
+> Design document, not a guarantee that every proposed feature is implemented.
+> Use `docs/COMMANDS.md` for current command behavior and `SECURITY.md`'s
+> implementation-status section for actual security boundaries.
+
+This fork's implemented add-on access policy is specified in
+[`docs/ACCESS-CONTROL.md`](docs/ACCESS-CONTROL.md). It applies equally to CLI and
+optional MCP and overrides any broader proposed capabilities below.
+
 ## Overview
 
 `thunderbird-cli` (`tb`) is a low-level CLI tool that provides complete programmatic access to Mozilla Thunderbird's email capabilities. It serves as a bridge between AI agents and Thunderbird, making Thunderbird the source of truth for all email operations while allowing visual control through the Thunderbird desktop client.
@@ -730,7 +738,7 @@ Note: Extension development cannot happen in Docker. Edit `extension/src/backgro
 - [ ] Junk message warnings in output
 - [x] Download state detection (`tb download-status`)
 - [x] `tb fetch` (force download from IMAP)
-- [x] `tb sync` / `tb sync-status` (trigger IMAP refresh)
+- [x] `tb sync-status` reads folder counts; `tb sync` fails explicitly because IMAP refresh is not implemented
 - [x] Batch read (`tb read-batch`)
 - [x] `--max-body` truncation
 - [x] `--fields` flag for field filtering
@@ -783,7 +791,7 @@ Thunderbird syncs IMAP in the background, but:
 ### Sync Commands
 
 ```bash
-# Check sync status for a folder
+# Read current folder counts (not IMAP sync progress)
 tb sync-status <folderId>
 # Returns:
 {
@@ -791,19 +799,15 @@ tb sync-status <folderId>
   "data": {
     "folderId": "account1://INBOX",
     "totalMessages": 1520,
-    "downloadedFull": 1480,
-    "headersOnly": 40,
-    "syncState": "idle",           # "idle" | "syncing" | "error"
-    "lastSync": "2026-04-04T12:00:00Z"
+    "unread": 40,
+    "name": "Inbox"
   }
 }
 
-# Trigger folder refresh (forces Thunderbird to check for new mail)
+# Unsupported: returns an error directing the user to Thunderbird's Get Messages
 tb sync <folderId>
-# Implementation: calls messenger.folders.getFolderInfo() which
-# triggers IMAP NOOP/SELECT, then returns updated counts
 
-# Sync all accounts (trigger global check)
+# Also unsupported
 tb sync --all
 
 # Check if a specific message is fully downloaded
@@ -813,11 +817,10 @@ tb download-status <messageId>
 # Force download full message from IMAP server
 tb fetch <messageId>
 # Implementation: messenger.messages.getRaw() forces full download
-# Then the message is cached in Thunderbird permanently
+# This is not a guarantee of permanent offline caching
 
 # Batch fetch — download full bodies for folder
-tb fetch --folder <folderId> --headers-only --limit 100
-# Only fetches messages that are currently headers-only
+tb fetch --folder <folderId> --limit 100
 ```
 
 ### How Sync Detection Works Internally
@@ -826,9 +829,9 @@ tb fetch --folder <folderId> --headers-only --limit 100
    If it returns body parts → fully downloaded. 
    If body is empty/null → headers only.
    
-2. **Trigger sync**: `messenger.folders.getSubFolders()` on a folder 
-   triggers Thunderbird's internal IMAP check. Also, 
-   `messenger.messages.list()` on a folder forces a refresh.
+2. **Sync limitation**: `messenger.folders.getSubFolders()` enumerates folders;
+   it does not trigger an IMAP refresh. Neither message enumeration nor folder
+   counts guarantee fresh server state. Use Thunderbird's Get Messages command.
 
 3. **New mail detection**: Poll `tb recent --hours 1` periodically,
    or compare message counts between calls.

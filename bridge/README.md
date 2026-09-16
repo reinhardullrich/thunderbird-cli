@@ -88,6 +88,16 @@ started.
 > The WebSocket listener on `:7701`, which the Thunderbird extension connects to, is **not**
 > covered by `TB_AUTH_TOKEN`.
 
+An existing extension connection cannot be replaced by a second connection.
+This does not authenticate the first client: another local process can still
+occupy the slot before Thunderbird connects. Treat the host user as trusted.
+
+The bridge accepts only `--port` and `--ws-port` arguments. There is no
+`--read-only` mode; unknown options fail at startup. HTTP request bodies are
+limited to 40 MiB. Interrupted uploads do not stop the daemon, and UTF-8 bodies
+are decoded after assembling their bytes. If a connection fails during a write,
+the outcome may be unknown: inspect Thunderbird before retrying.
+
 ## Browser protections
 
 Independently of the token, the bridge refuses traffic that can only come from a web page in

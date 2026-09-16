@@ -59,7 +59,7 @@ function connect() {
     } catch (err) {
       socket.send(JSON.stringify({
         id: request.id,
-        error: { message: err.message, stack: err.stack },
+        error: { message: err.message, code: err.code, stack: err.stack },
       }));
     }
   };
@@ -108,6 +108,21 @@ if (typeof messenger !== "undefined" && messenger.idle?.onStateChanged) {
 // ─── Request Router ─────────────────────────────────────────────────
 
 async function handleRequest({ method, path, body }) {
+  if (body != null) {
+    if (typeof body !== "object" || Array.isArray(body)) throw new Error("INVALID_ARGS: body must be an object");
+    for (const key of ["send", "draft", "open", "permanent", "isHTML", "replyAll", "read", "flagged", "junk", "unreadOnly", "hasAttachment", "includeJunk"]) {
+      if (body[key] !== undefined && typeof body[key] !== "boolean") throw new Error(`INVALID_ARGS: ${key} must be boolean`);
+    }
+    const validId = id => Number.isSafeInteger(id) && id > 0;
+    if ((body.messageId !== undefined && !validId(body.messageId)) ||
+        (body.messageIds !== undefined && (!Array.isArray(body.messageIds) || !body.messageIds.every(validId)))) {
+      throw new Error("INVALID_ARGS: message IDs must be positive integers");
+    }
+  }
+  authorizeRequest(method, path, body);
+  if (path === "/access" && method === "GET") {
+    return { read: true, policy: ACCESS_POLICY };
+  }
   // Health
   if (path === "/health") {
     return { status: "ok", version: messenger.runtime.getManifest().version, thunderbird: true };
@@ -237,24 +252,18 @@ async function handleRequest({ method, path, body }) {
             offset = 0, sort, sortOrder = "desc", flagged } = body || {};
     const folder = await messenger.folders.get(folderId, false);
     if (!folder) return { error: "Folder not found" };
+    const dir = sortOrder === "asc" ? 1 : -1;
     const result = await collectMessages(
       () => messenger.messages.list(folder), limit,
-      { unreadOnly, flaggedOnly: flagged || false, offset }
-    );
-
-    // Sort results if requested
-    if (sort) {
-      const dir = sortOrder === "asc" ? 1 : -1;
-      result.messages.sort((a, b) => {
+      { unreadOnly, flaggedOnly: flagged || false, offset, accept: bulkMessageFilter(body || {}), compare: sort ? (a, b) => {
         if (sort === "date") return dir * (new Date(a.date) - new Date(b.date));
         if (sort === "from") return dir * (a.author || "").localeCompare(b.author || "");
         if (sort === "subject") return dir * (a.subject || "").localeCompare(b.subject || "");
         if (sort === "size") return dir * ((a.size || 0) - (b.size || 0));
         return 0;
-      });
-    }
-
-    return result;
+      } : null }
+    );
+    return { ...result, bulkFiltersApplied: true };
   }
 
   // ─── Read batch ─────────────────────────────────────────────────
@@ -283,7 +292,7 @@ async function handleRequest({ method, path, body }) {
     }
     if (body.folderId) {
       const folder = await messenger.folders.get(body.folderId, false);
-      const result = await collectMessages(() => messenger.messages.list(folder), body.limit || 100);
+      const result = await collectMessages(() => messenger.messages.list(folder), body.limit ?? 100);
       const fetched = await fetchRawAll(result.messages);
       return { fetched, total: result.messages.length };
     }
@@ -402,9 +411,7 @@ async function handleRequest({ method, path, body }) {
   const attachmentsMatch = path.match(/^\/messages\/(\d+)\/attachments$/);
   if (attachmentsMatch && method === "GET") {
     const msgId = parseInt(attachmentsMatch[1]);
-    const full = await messenger.messages.getFull(msgId);
-    const parts = extractParts(full);
-    return parts.attachments;
+    return await messenger.messages.listAttachments(msgId);
   }
 
   // Download specific attachment
@@ -449,15 +456,15 @@ async function handleRequest({ method, path, body }) {
     const add = (m, threadMatch) => {
       if (seen.has(m.id)) return;
       seen.add(m.id);
-      thread.push({ ...formatMessage(m), threadMatch });
+      thread.push({ ...m, threadMatch });
     };
 
     // Upstream: every message named in References / In-Reply-To
     const pages = await mapWithIpcLimit([...ids], async (hdrId) => {
       try {
-        return (await messenger.messages.query({ headerMessageId: hdrId }))?.messages || [];
-      } catch {
-        return [];
+        return (await collectMessages(() => messenger.messages.query({ headerMessageId: hdrId }), Infinity)).messages;
+      } catch (error) {
+        throw new Error(`Thread lookup failed: ${error.message}`);
       }
     });
     for (const messages of pages) messages.forEach((m) => add(m, "references"));
@@ -468,11 +475,13 @@ async function handleRequest({ method, path, body }) {
     const norm = normalizeSubject(msg?.subject || "");
     if (norm) {
       try {
-        const r = await messenger.messages.query({ subject: norm, junk: false });
+        const r = await collectMessages(() => messenger.messages.query({ subject: norm, junk: false }), Infinity);
         for (const m of r?.messages || []) {
           if (normalizeSubject(m.subject || "").toLowerCase() === norm.toLowerCase()) add(m, "subject");
         }
-      } catch {}
+      } catch (error) {
+        throw new Error(`Thread subject lookup failed: ${error.message}`);
+      }
     }
 
     thread.sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -506,7 +515,7 @@ async function handleRequest({ method, path, body }) {
   if (path === "/compose" && method === "POST") {
     const { to, cc, bcc, subject, body: msgBody, isHTML = false,
             identityId, send = false, draft = false, open = false,
-            priority } = body;
+            priority, header } = body;
     const details = {};
     if (to) details.to = Array.isArray(to) ? to : [to];
     if (cc) details.cc = Array.isArray(cc) ? cc : [cc];
@@ -515,7 +524,12 @@ async function handleRequest({ method, path, body }) {
     if (isHTML) { details.isPlainText = false; details.body = msgBody; }
     else { details.isPlainText = true; details.plainTextBody = msgBody; }
     if (identityId) details.identityId = identityId;
-    if (priority) details.customHeaders = [{ name: "X-Priority", value: priorityToValue(priority) }];
+    if (priority) details.priority = priority;
+    if (header !== undefined) {
+      if (typeof header !== "string" || !/^[^:\r\n]+:[^\r\n]*$/.test(header)) throw new Error("INVALID_ARGS: header must be name:value without newlines");
+      const colon = header.indexOf(":");
+      details.customHeaders = [{ name: header.slice(0, colon).trim(), value: header.slice(colon + 1).trim() }];
+    }
     const tab = await messenger.compose.beginNew(null, details);
     if (send) {
       await messenger.compose.sendMessage(tab.id, { mode: "sendNow" });
@@ -533,12 +547,25 @@ async function handleRequest({ method, path, body }) {
   // ─── Reply ──────────────────────────────────────────────────────
 
   if (path === "/reply" && method === "POST") {
-    const { messageId, body: replyBody, replyAll = false,
+    const { messageId, body: replyBody = "", replyAll = false, isHTML = false,
             send = false, draft = false, open = false } = body;
+    if (typeof replyBody !== "string") throw new Error("INVALID_ARGS: reply body must be a string");
     const type = replyAll ? "replyToAll" : "replyToSender";
-    const tab = await messenger.compose.beginReply(messageId, type, {
-      isPlainText: true, plainTextBody: replyBody,
-    });
+    const tab = await messenger.compose.beginReply(messageId, type, { isPlainText: !isHTML });
+    try {
+      const original = await messenger.compose.getComposeDetails(tab.id);
+      if (isHTML) {
+        const doc = new DOMParser().parseFromString(original.body, "text/html");
+        const intro = doc.createElement("div");
+        intro.innerHTML = replyBody;
+        doc.body.prepend(intro);
+        await messenger.compose.setComposeDetails(tab.id, { body: doc.documentElement.outerHTML });
+      } else {
+        await messenger.compose.setComposeDetails(tab.id, { plainTextBody: replyBody + "\n\n" + original.plainTextBody });
+      }
+    } catch (error) {
+      throw new Error(`Reply tab ${tab.id} is open but preparation failed; inspect it before retrying: ${error.message}`);
+    }
     if (send) {
       await messenger.compose.sendMessage(tab.id, { mode: "sendNow" });
       return { success: true, action: "sent" };
@@ -626,9 +653,8 @@ async function handleRequest({ method, path, body }) {
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
     const result = await collectMessages(
       () => messenger.messages.query({ fromDate: since }), limit,
-      { unreadOnly, accountId: accountId || null }
+      { unreadOnly, accountId: accountId || null, compare: (a, b) => new Date(b.date) - new Date(a.date) }
     );
-    result.messages.sort((a, b) => new Date(b.date) - new Date(a.date));
     result.since = since.toISOString();
     return result;
   }
@@ -686,26 +712,15 @@ async function handleRequest({ method, path, body }) {
   // ─── Sync ───────────────────────────────────────────────────────
 
   if (path === "/sync" && method === "POST") {
-    if (body && body.all) {
-      const accounts = await messenger.accounts.list(true);
-      for (const acct of accounts) {
-        if (acct.rootFolder) await messenger.folders.getSubFolders(acct.rootFolder, false);
-      }
-      return { success: true, synced: "all" };
-    }
-    if (body && body.folderId) {
-      const folder = await messenger.folders.get(body.folderId, false);
-      await messenger.folders.getSubFolders(folder, false);
-      return { success: true, synced: body.folderId };
-    }
-    return { error: "Provide folderId or all: true" };
+    throw new Error("Manual sync required: this connector cannot trigger IMAP sync; use Thunderbird's Get Messages command");
   }
 
   if (path === "/sync/status" && method === "POST") {
     const folder = await messenger.folders.get(body.folderId, false);
+    const info = await messenger.folders.getFolderInfo(folder);
     return {
-      folderId: folder.id, totalMessages: folder.totalMessageCount,
-      unread: folder.unreadMessageCount, type: folder.type, name: folder.name,
+      folderId: folder.id, totalMessages: info.totalMessageCount,
+      unread: info.unreadMessageCount, type: folder.type, name: folder.name,
     };
   }
 
@@ -713,8 +728,8 @@ async function handleRequest({ method, path, body }) {
 
   if (path === "/bulk/delete" && method === "POST") {
     const folder = await messenger.folders.get(body.folderId, false);
-    const result = await collectMessages(() => messenger.messages.list(folder), body.limit || 100);
-    const filtered = filterBulkMessages(result.messages, body);
+    const result = await collectMessages(() => messenger.messages.list(folder), body.limit ?? 100, { accept: bulkMessageFilter(body) });
+    const filtered = result.messages;
     if (filtered.length > 0) {
       await messenger.messages.delete(filtered.map((m) => m.id), false);
     }
@@ -723,9 +738,10 @@ async function handleRequest({ method, path, body }) {
 
   if (path === "/bulk/tag" && method === "POST") {
     const folder = await messenger.folders.get(body.folderId, false);
-    const result = await collectMessages(() => messenger.messages.list(folder), body.limit || 100);
-    const toTag = filterBulkMessages(result.messages, body)
-      .filter((msg) => !(msg.tags || []).includes(body.tagKey));
+    const matches = bulkMessageFilter(body);
+    const result = await collectMessages(() => messenger.messages.list(folder), body.limit ?? 100,
+      { accept: msg => matches(msg) && !(msg.tags || []).includes(body.tagKey) });
+    const toTag = result.messages;
     await mapWithIpcLimit(toTag, (msg) =>
       messenger.messages.update(msg.id, { tags: [...(msg.tags || []), body.tagKey] })
     );
@@ -734,7 +750,7 @@ async function handleRequest({ method, path, body }) {
 
   if (path === "/bulk/fetch" && method === "POST") {
     const folder = await messenger.folders.get(body.folderId, false);
-    const result = await collectMessages(() => messenger.messages.list(folder), body.limit || 100);
+    const result = await collectMessages(() => messenger.messages.list(folder), body.limit ?? 100);
     const fetched = await fetchRawAll(result.messages);
     return { success: true, fetched, total: result.messages.length };
   }
@@ -770,6 +786,12 @@ function formatMessage(msg) {
 function extractParts(part, result = { text: "", html: "", attachments: [] }) {
   if (!part) return result;
   const ct = (part.contentType || "").toLowerCase();
+  const attachment = part.name || part.headers?.["content-disposition"]?.some(value => /^attachment\b/i.test(value));
+  if (attachment && part.partName) {
+    result.attachments.push({ name: part.name || "unnamed", contentType: ct,
+      partName: part.partName, size: part.size });
+    return result;
+  }
   if (ct === "text/plain" && part.body) result.text += part.body;
   else if (ct === "text/html" && part.body) result.html += part.body;
   else if (part.name || (ct && !ct.startsWith("multipart/"))) {
@@ -813,19 +835,25 @@ async function countFolder(folder, stats) {
   }
 }
 
-async function collectMessages(queryFn, limit, { unreadOnly = false, flaggedOnly = false, offset = 0, accountId = null } = {}) {
+async function collectMessages(queryFn, limit, { unreadOnly = false, flaggedOnly = false, offset = 0, accountId = null, compare = null, accept = null } = {}) {
+  if ((limit !== Infinity && (!Number.isSafeInteger(limit) || limit < 0)) ||
+      !Number.isSafeInteger(offset) || offset < 0) {
+    throw new Error("INVALID_ARGS: limit and offset must be nonnegative integers");
+  }
   let page = await queryFn();
   const messages = [];
   let skipped = 0;
+  let failed = false;
   try {
     while (page) {
       for (const msg of page.messages) {
         if (unreadOnly && msg.read) continue;
         if (flaggedOnly && !msg.flagged) continue;
         if (accountId && msg.folder?.accountId !== accountId) continue;
-        if (skipped < offset) { skipped++; continue; }
+        if (accept && !accept(msg)) continue;
+        if (!compare && skipped < offset) { skipped++; continue; }
         // One extra matching message proves more exist, even inside a final page.
-        if (messages.length >= limit) {
+        if (!compare && messages.length >= limit) {
           return { messages, total: messages.length, offset, hasMore: true };
         }
         messages.push(formatMessage(msg));
@@ -833,32 +861,38 @@ async function collectMessages(queryFn, limit, { unreadOnly = false, flaggedOnly
       if (!page.id) break;
       page = await messenger.messages.continueList(page.id);
     }
-    return { messages, total: messages.length, offset, hasMore: false };
+    // ponytail: sorted pages retain all matching headers; index only if mailbox size requires it.
+    if (compare) messages.sort(compare);
+    const selected = compare ? messages.slice(offset, offset + limit) : messages;
+    return { messages: selected, total: selected.length, offset,
+      hasMore: !!compare && messages.length > offset + limit };
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    if (page?.id) await messenger.messages.abortList(page.id);
+    if (page?.id) {
+      try {
+        await messenger.messages.abortList(page.id);
+      } catch (error) {
+        if (!failed) throw error;
+        console.error("[tb-ai] Failed to abort message list after pagination error:", error.message);
+      }
+    }
   }
 }
 
-function filterBulkMessages(messages, filters) {
-  let result = messages;
-  if (filters.olderThan) {
-    const cutoff = new Date(Date.now() - parseInt(filters.olderThan) * 86400000);
-    result = result.filter((m) => new Date(m.date) < cutoff);
+function bulkMessageFilter(filters) {
+  if (filters.olderThan !== undefined && (!Number.isSafeInteger(filters.olderThan) || filters.olderThan < 0)) {
+    throw new Error("INVALID_ARGS: olderThan must be a nonnegative integer");
   }
-  if (filters.from) {
-    const from = filters.from.toLowerCase();
-    result = result.filter((m) => (m.author || "").toLowerCase().includes(from));
-  }
-  if (filters.subject) {
-    const subj = filters.subject.toLowerCase();
-    result = result.filter((m) => (m.subject || "").toLowerCase().includes(subj));
-  }
-  return result;
-}
-
-function priorityToValue(priority) {
-  const map = { highest: "1", high: "2", normal: "3", low: "4", lowest: "5" };
-  return map[priority] || "3";
+  const cutoff = filters.olderThan === undefined ? null : Date.now() - filters.olderThan * 86400000;
+  const from = filters.from?.toLowerCase();
+  const subject = filters.subject?.toLowerCase();
+  const pattern = filters.subjectPattern === undefined ? null : new RegExp(filters.subjectPattern, "i");
+  return msg => (cutoff === null || new Date(msg.date).getTime() < cutoff) &&
+    (!from || (msg.author || "").toLowerCase().includes(from)) &&
+    (!subject || (msg.subject || "").toLowerCase().includes(subject)) &&
+    (!pattern || pattern.test(msg.subject || ""));
 }
 
 function bytesToBase64(bytes) {

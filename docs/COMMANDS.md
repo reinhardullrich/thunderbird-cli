@@ -1,6 +1,15 @@
 # CLI Command Reference
 
-All 38 commands in the `tb` CLI. For the quick tour, see the [main README](../README.md). For AI-agent-focused usage, see [CLAUDE.md](CLAUDE.md).
+CLI commands in `tb`. For the quick tour, see the [main README](../README.md). For AI-agent-focused usage, see [CLAUDE.md](CLAUDE.md).
+
+## Access policy
+
+`tb access` reports the policy enforced by the installed add-on (`GET /access`).
+Reading/searching are always available. Attachment downloads and drafts default
+to enabled; sending and changes to existing mail default to disabled. See
+[Access control](ACCESS-CONTROL.md) for every switch and build/install steps.
+These restrictions also apply to MCP and direct bridge calls. The commands below
+describe capabilities, not a promise that every capability is enabled.
 
 ## Global Options
 
@@ -150,6 +159,7 @@ tb compose [options]
   --html                   # treat body as HTML
   --from <identityId>      # send from specific identity (see: tb identities)
   --priority <level>       # highest | high | normal | low | lowest
+  --header <name:value>    # custom header supported by Thunderbird (e.g. X-Project: demo)
   --draft                  # save as draft (default)
   --open                   # open in Thunderbird compose window
   --send                   # send immediately
@@ -158,6 +168,7 @@ tb reply <messageId> [options]
   --body <text>            # reply text
   --body-file <path>       # read from file
   --all                    # reply to all
+  --html                   # supplied reply body is HTML
   --draft / --open / --send
 
 tb forward <messageId> [options]
@@ -165,6 +176,10 @@ tb forward <messageId> [options]
   --body <text>            # additional text
   --draft / --open / --send
 ```
+
+Replies prepend the supplied text to Thunderbird's generated reply body, keeping
+its quotation and reply metadata. If preparation fails after opening a window,
+the error identifies that window; inspect it before retrying.
 
 ## Attachments
 
@@ -174,6 +189,10 @@ tb attachment-download <messageId> <partName> --output <path>  # download one
 tb attachment-download <messageId> --all --output-dir <dir>    # download all
 ```
 
+Downloads never overwrite an existing path. Bulk downloads reject filenames
+containing path separators or control characters. New files have mode `0600`.
+Text and HTML attachments are listed as attachments, not merged into the body.
+
 ## Fetch & Sync
 
 ```bash
@@ -181,9 +200,9 @@ tb fetch <messageId>                      # force download from IMAP
 tb fetch --folder <folderId> --limit <n>  # batch fetch
 tb download-status <messageId>            # check: full | headers_only
 
-tb sync <folderId>                        # trigger folder sync
-tb sync --all                             # sync all accounts
-tb sync-status <folderId>                 # check sync status
+tb sync <folderId>                        # unsupported: returns an explicit error
+tb sync --all                             # unsupported: use Thunderbird's Get Messages
+tb sync-status <folderId>                 # current folder counts, not IMAP sync progress
 ```
 
 ## Contacts
@@ -204,6 +223,12 @@ tb bulk delete <folderId> --confirm [--older-than <days>] [--from <addr>]
 tb bulk tag <folderId> <tagKey> [--older-than <days>] [--from <addr>]
 tb bulk fetch <folderId> [-l <n>]                                 # force IMAP download
 ```
+
+Bulk move/delete/tag apply filters before the batch limit. Bulk move refuses to
+run against an older extension that does not confirm this behavior. Upgrade the
+CLI and extension together. The default batch remains 100 matching messages,
+not the whole folder. A subject filter is a regular expression for bulk move
+and a case-insensitive substring for bulk delete/tag, as in earlier versions.
 
 ## Output Format
 

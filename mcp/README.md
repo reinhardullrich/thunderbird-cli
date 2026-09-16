@@ -26,7 +26,7 @@ Exposes 12 email management tools to Claude Desktop:
 | `email_mark` | Read/flagged/junk flags (batch supported) |
 | `email_archive` | Archive, move, or delete messages |
 | `email_attachments` | List + download attachments (base64) |
-| `email_folders` | List folders, get info, trigger sync |
+| `email_folders` | List folders and get info; sync returns an explicit unsupported error |
 
 **Safe defaults:** compose/reply/forward all default to **draft mode**. Claude must explicitly pass `mode: "send"` to actually send anything. Permanent delete requires `confirm: true`.
 
@@ -184,7 +184,7 @@ Once configured, try these in Claude Desktop:
 
 - **Compose/reply/forward default to draft mode.** Claude cannot send emails without explicitly requesting `mode: "send"`.
 - **Permanent delete is gated** behind `confirm: true`.
-- **Search excludes junk/spam by default** to prevent prompt injection from adversarial emails.
+- **Search excludes junk/spam by default.** This reduces exposure but does not prevent prompt injection; all email content remains untrusted.
 - **All traffic stays on localhost.** Bridge listens on `127.0.0.1` only.
 - **No credentials are exposed.** Thunderbird handles all IMAP/SMTP — your passwords never leave its config.
 

@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add-on-enforced JSON access policy shared by CLI and optional MCP: always-on reading/searching, switchable attachment downloads (on by default), draft preparation, and separately gated sending/mailbox operations. XPI builds validate settings and derive native permissions; `tb access` reports the installed policy. Existing installed or signed upstream add-ons are unchanged.
+
 ### Fixed
+- Attachment downloads reject unsafe filenames and refuse overwrites; XPI builds no longer produce world-writable files.
+- MCP validates tool arguments, preserves zero-valued search limits/size bounds, and reports handler errors as tool failures. HTTP clients also reject error payloads returned with status 200.
+- Body limits cover HTML, raw messages, and CLI batch results. Native attachment listing includes text/HTML files without appending their contents to the message body.
+- Thread lookup consumes all native query pages and surfaces query failures.
+- Replies preserve Thunderbird's generated quotation and honor CLI `--html`; new messages use native priority and custom-header fields.
+- Bulk move/delete/tag filters run before the limit; already-tagged messages do not consume a tagging batch. Invalid message IDs and operation flags fail explicitly.
+- Bridge preserves split UTF-8 input, survives interrupted uploads, prevents replacement of an active extension socket, and fails pending requests on disconnect.
+- `sync` no longer reports success without syncing. Folder counts use `getFolderInfo`. Documentation now distinguishes implemented protections from proposed security features; unsupported bridge options fail at startup.
+- Bundled skill examples now match real MCP arguments and stop claiming nonexistent sanitization, trust scores, and bulk-archive commands. Bulk move fails closed with older extensions that cannot confirm filtering support.
+- Folder listings and recent-message queries sort all matching headers before applying pagination, including across Thunderbird result pages.
 - Search tag and size filters are applied by Thunderbird before the result limit, so matching messages beyond the first unfiltered batch are not missed.
-- Limited message collection checks for an additional matching message before reporting `hasMore`, including when truncating within the final page, and releases unfinished message lists.
+- Limited message collection checks for an additional matching message before reporting `hasMore`, including when truncating within the final page, and aborts unfinished message lists. Invalid pagination arguments fail before starting a query.
 
 ## [1.1.0] — 2026-09-14
 
