@@ -25,6 +25,14 @@ Everything localhost-only. Thunderbird holds credentials; no creds pass through 
 
 ## Setup (before editing)
 
+### Fork workflow
+
+This fork (`reinhardullrich/thunderbird-cli`) uses only `main`. Keep reviewed,
+tested changes on `main` and push to `origin/main` when authorized. Do not create
+feature branches on this fork. The `upstream` remote is reference-only unless
+an upstream contribution is explicitly requested. Never commit local credentials,
+access configuration, runtime files, or the private token-bearing XPI.
+
 ```bash
 npm install                # installs workspace deps for cli/, bridge/, mcp/
 npm test                   # CLI/mock integration and review regression tests
