@@ -31,6 +31,11 @@ node scripts/build-xpi.mjs --access-config access.local.json \
 When replacing an existing customized installation, pass its existing `--addon-id`
 and a newer internal `--addon-version`. These override package metadata, not source.
 Keep the ID unchanged to replace the add-on rather than installing a second one.
+Date-based private builds can use `YYYY.M.D.N`, for example
+`--addon-version 2026.9.16.1`. Do not pad month/day with zeroes. Increment `N`
+for another build on the same date and start at 1 on a new date. Always use a
+version greater than the installed one. This private add-on version is independent
+of npm package versions; it does not require republishing the CLI or MCP packages.
 The XPI contains the private token: mode 600, never publish/share it or upload it
 to an add-on store. An ordinary build without `--auth-file` remains public.
 
