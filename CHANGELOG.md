@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- All message/folder deletion commands, MCP deletion operations, API handlers and deletion permissions. No config can enable them. Use explicit move-to-Trash instead; old deletion configuration keys fail validation.
+- Bundled older upstream signed XPIs with full-access deletion code; build this fork rather than installing those stale artifacts.
+
 ### Added
 - Add-on-enforced JSON access policy shared by CLI and optional MCP: always-on reading/searching, switchable attachment downloads (on by default), draft preparation, and separately gated sending/mailbox operations. XPI builds validate settings and derive native permissions; `tb access` reports the installed policy. Existing installed or signed upstream add-ons are unchanged.
 

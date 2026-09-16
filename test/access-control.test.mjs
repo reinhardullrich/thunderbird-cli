@@ -41,16 +41,15 @@ const writes = [
   ["/compose", "compose", { open: true }], ["/reply", "compose", { messageId: 1, open: true }],
   ["/forward", "compose", { messageId: 1, open: true }],
   ["/messages/move", "move", {}], ["/messages/copy", "copy", {}],
-  ["/messages/archive", "archive", {}], ["/messages/delete", "delete", { permanent: true }],
-  ["/bulk/delete", "delete", {}], ["/messages/update", "mark", { read: true }],
+  ["/messages/archive", "archive", {}], ["/messages/update", "mark", { read: true }],
   ["/messages/update", "mark", { flagged: false }], ["/messages/update", "mark", { junk: true }],
   ["/messages/update", "tag", { tags: [] }], ["/bulk/tag", "tag", {}],
   ["/tags/create", "tagCreate", {}], ["/folders/create", "folderCreate", {}],
-  ["/folders/rename", "folderRename", {}], ["/folders/delete", "folderDelete", {}],
+  ["/folders/rename", "folderRename", {}],
 ];
 await test("config validates keys, booleans and the send dependency", () => {
   for (const config of [null, [], false, { read: false }, { send: "false" }, { typo: true },
-    { compose: false, send: true }, JSON.parse('{"__proto__":true}')]) {
+    { compose: false, send: true }, { delete: true }, { folderDelete: true }, JSON.parse('{"__proto__":true}')]) {
     assert.throws(() => context(config), /INVALID_ARGS/);
   }
   assert.throws(() => context(undefined).normalizeAccessPolicy(undefined), /INVALID_ARGS/);
@@ -108,6 +107,32 @@ await test("unknown paths and wrong methods fail closed; sync stays explicitly u
   await assert.rejects(ctx.handleRequest({ method: "POST", path: "/sync" }), /Manual sync required/);
   assert.equal(ctx.nativeCalls(), 0);
 });
+await test("deletion is absent even with every supported right enabled", async () => {
+  const defaults = vm.runInContext("ACCESS_POLICY", context());
+  const all = Object.fromEntries(Object.keys(defaults).map(key => [key, true]));
+  const ctx = context(all);
+  for (const path of ["/messages/delete", "/bulk/delete", "/folders/delete", "/folders/emptyTrash", "/emptyTrash"]) {
+    for (const method of ["POST", "DELETE"]) {
+      await assert.rejects(ctx.handleRequest({ method, path, body: {
+        messageIds: [1], folderId: "trash", permanent: true, confirm: true,
+      } }), /FORBIDDEN/);
+    }
+  }
+  assert.equal(ctx.nativeCalls(), 0);
+  assert(!ctx.accessPermissions(all).includes("messagesDelete"));
+  assert.doesNotMatch(source("background.js"), /messenger\.(?:messages|folders)\.(?:delete|emptyTrash|deleteAttachments)\s*\(/);
+});
+await test("moving into and restoring from Trash use only the move API", async () => {
+  const ctx = context({ move: true });
+  const calls = [];
+  ctx.messenger.folders = { get: async id => ({ id }) };
+  ctx.messenger.messages = { move: async (ids, folder) => calls.push({ ids, folder }) };
+  for (const destinationFolderId of ["trash", "inbox"]) {
+    const result = await ctx.handleRequest({ method: "POST", path: "/messages/move", body: { messageIds: [1], destinationFolderId } });
+    assert.equal(result.moved, 1);
+  }
+  assert.equal(calls[0].folder.id, "trash"); assert.equal(calls[1].folder.id, "inbox");
+});
 await test("read and draft requests actually reach their real handlers", async () => {
   const ctx = context();
   for (const [method, path, body] of [["GET", "/messages/1"], ["POST", "/messages/1/attachment", { partName: "1.2" }],
@@ -138,7 +163,7 @@ await test("per-right builds embed policy and derive native permissions without 
       const permissions = JSON.parse(zip.readAsText("manifest.json")).permissions;
       assert.deepEqual(permissions, [...ctx.accessPermissions(expected)]);
       assert.equal(permissions.includes("compose.send"), expected.send);
-      assert.equal(permissions.includes("messagesDelete"), expected.delete);
+      assert.equal(permissions.includes("messagesDelete"), false);
     }
     fs.writeFileSync(dir + "/access.json", '{"read":false}');
     const r = spawnSync(process.execPath, [dir + "/scripts/build-xpi.mjs", "--access-config", dir + "/access.json"], { encoding: "utf8" });
@@ -200,13 +225,18 @@ await test("real bridge, CLI and MCP handlers preserve add-on denial and access 
     const denied = await child(["cli/src/cli.js", "compose", "--to", "test@example.invalid", "--body", "Test", "--send"]);
     assert.notEqual(denied.code, 0);
     assert.match(denied.stdout + denied.stderr, /FORBIDDEN/);
+    for (const args of [["delete", "1", "--permanent", "--confirm"], ["folder-delete", "trash", "--confirm"], ["bulk", "delete", "trash", "--confirm"]]) {
+      const removed = await child(["cli/src/cli.js", ...args]);
+      assert.notEqual(removed.code, 0);
+      assert.match(removed.stdout + removed.stderr, /unknown command/);
+    }
     // Import after setting the isolated endpoint: the client captures env at load time.
     const { api } = await import("../mcp/src/client.js");
     const { tools } = await import("../mcp/src/tools.js");
     for (const [name, args] of [
       ["email_compose", { to: "test@example.invalid", body: "Test", mode: "send" }],
       ["email_attachments", { messageId: 1, operation: "download", partName: "1.2" }],
-      ["email_archive", { messageIds: [1], operation: "delete" }],
+      ["email_archive", { messageIds: [1], operation: "move", destinationFolderId: "trash" }],
     ]) {
       await assert.rejects(tools.find(t => t.name === name).handler(args, api), error => error.code === "FORBIDDEN");
     }

@@ -67,11 +67,11 @@ const messenger = {
 };
 const ctx = vm.createContext({ messenger, console, WebSocket: class {}, setTimeout() {}, clearTimeout() {} });
 // These regressions exercise explicitly enabled write operations on synthetic mail.
-ctx.TB_ACCESS_CONFIG = { send: true, delete: true, tag: true };
+ctx.TB_ACCESS_CONFIG = { send: true, tag: true };
 for (const file of ['access-control.js', 'thread-utils.js', 'background.js']) vm.runInContext(fs.readFileSync(new URL('../extension/src/' + file, import.meta.url), 'utf8'), ctx);
 const handle = (method, path, body) => ctx.handleRequest({ method, path, body });
 await test('extension rejects malformed IDs and non-boolean operation flags before doing work', async () => {
-  for (const body of [{ messageIds: [1.2] }, { messageId: '1' }, { send: 'false' }, { permanent: 'false' }, []]) {
+  for (const body of [{ messageIds: [1.2] }, { messageId: '1' }, { send: 'false' }, { flagged: 'false' }, []]) {
     await assert.rejects(handle('POST', '/compose', body), /INVALID_ARGS/);
   }
 });
@@ -121,19 +121,16 @@ await test('bulk filters and already-tagged messages are skipped before limiting
   messenger.messages.continueList = async () => ({ messages: [
     { ...header(2), author: 'wanted', tags: ['tag'] }, { ...header(3), author: 'wanted' },
   ] });
-  const updated = [], deleted = [];
+  const updated = [];
   messenger.messages.update = async id => { updated.push(id); };
-  messenger.messages.delete = async ids => { deleted.push(...ids); };
   try {
     await handle('POST', '/bulk/tag', { folderId: 'test', from: 'wanted', limit: 1, tagKey: 'tag' });
     assert.deepEqual(updated, [3]);
-    await handle('POST', '/bulk/delete', { folderId: 'test', from: 'wanted', limit: 1 });
-    assert.deepEqual(deleted, [2]);
     const r = await handle('POST', '/messages/list', { folderId: 'test', from: 'wanted', subjectPattern: '^Top', limit: 1 });
     assert.equal(r.messages[0].id, 2); assert.equal(r.hasMore, true);
-    await handle('POST', '/bulk/delete', { folderId: 'test', limit: 0 });
-    assert.deepEqual(deleted, [2]);
-    await assert.rejects(handle('POST', '/bulk/delete', { folderId: 'test', olderThan: null }), /INVALID_ARGS/);
+    await handle('POST', '/bulk/tag', { folderId: 'test', limit: 0, tagKey: 'tag' });
+    assert.deepEqual(updated, [3]);
+    await assert.rejects(handle('POST', '/bulk/tag', { folderId: 'test', olderThan: null }), /INVALID_ARGS/);
   } finally { messenger.messages.continueList = saved; }
 });
 await test('attachment listing includes native text attachments', async () => {
@@ -218,13 +215,13 @@ try {
   });
   await test('malformed destructive IDs do not reach the bridge', async () => {
     const before = received;
-    for (const id of ['42oops', '42.5', '42,', '-1', '9007199254740993']) assert.notEqual((await cli(['delete', id])).code, 0);
+    for (const id of ['42oops', '42.5', '42,', '-1', '9007199254740993']) assert.notEqual((await cli(['move', id, 'trash'])).code, 0);
     assert.equal(received, before);
   });
   await test('malformed single-message IDs and bulk counts do not reach the bridge', async () => {
     const before = received;
     for (const args of [['reply', '1oops'], ['forward', '1.2', '--to', 'test@example.invalid'],
-      ['fetch', '1oops'], ['bulk', 'delete', 'folder', '--confirm', '--older-than', 'oops'],
+      ['fetch', '1oops'], ['bulk', 'tag', 'folder', 'tag', '--older-than', 'oops'],
       ['bulk', 'tag', 'folder', 'tag', '--limit', '1oops']]) assert.notEqual((await cli(args)).code, 0);
     assert.equal(received, before);
   });

@@ -193,23 +193,6 @@ program
     output(data, g.format, getOutputOpts(g));
   }));
 
-// ─── Folder Delete ────────────────────────────────────────────────────
-
-program
-  .command("folder-delete <folderId>")
-  .description("Delete a folder")
-  .option("--confirm", "required to confirm deletion")
-  .action(run(async (folderId, opts) => {
-    const g = program.opts();
-    const fmt = g.format;
-    if (!opts.confirm) {
-      outputError({ message: "Use --confirm to delete", code: "INVALID_ARGS" }, fmt);
-      return;
-    }
-    const data = await api("POST", "/folders/delete", { folderId }, getTimeout(g));
-    output(data, fmt, getOutputOpts(g));
-  }));
-
 // ─── Stats ────────────────────────────────────────────────────────────
 
 program
@@ -414,28 +397,6 @@ program
       destinationFolderId: folderId,
     }, getTimeout(g));
     output(data, g.format, getOutputOpts(g));
-  }));
-
-// ─── Delete ───────────────────────────────────────────────────────────
-
-program
-  .command("delete <messageIds>")
-  .description("Delete message(s) (to trash)")
-  .option("--permanent", "permanently delete (skip trash)")
-  .option("--confirm", "required for permanent delete")
-  .action(run(async (messageIds, opts) => {
-    const g = program.opts();
-    const fmt = g.format;
-    if (opts.permanent && !opts.confirm) {
-      outputError({ message: "Use --confirm for permanent delete", code: "INVALID_ARGS" }, fmt);
-      return;
-    }
-    const ids = parseIds(messageIds);
-    const data = await api("POST", "/messages/delete", {
-      messageIds: ids,
-      permanent: opts.permanent || false,
-    }, getTimeout(g));
-    output(data, fmt, getOutputOpts(g));
   }));
 
 // ─── Archive ──────────────────────────────────────────────────────────
@@ -875,32 +836,6 @@ bulk
     }
 
     output({ success: true, moved: toMove.length }, g.format, getOutputOpts(g));
-  }));
-
-bulk
-  .command("delete <folderId>")
-  .description("Bulk delete messages in folder")
-  .option("--older-than <days>", "only messages older than N days")
-  .option("--from <address>", "filter by sender")
-  .option("--subject <pattern>", "filter by subject")
-  .option("--confirm", "required to confirm deletion")
-  .option("-l, --limit <n>", "batch size", "100")
-  .action(run(async (folderId, opts) => {
-    const g = program.opts();
-    const fmt = g.format;
-    if (!opts.confirm) {
-      outputError({ message: "Use --confirm for bulk delete", code: "INVALID_ARGS" }, fmt);
-      return;
-    }
-    const timeout = getTimeout(g);
-    const body = { folderId };
-    if (opts.olderThan !== undefined) body.olderThan = parseCount(opts.olderThan);
-    if (opts.from) body.from = opts.from;
-    if (opts.subject) body.subject = opts.subject;
-    if (opts.limit !== undefined) body.limit = parseCount(opts.limit);
-
-    const data = await api("POST", "/bulk/delete", body, timeout);
-    output(data, fmt, getOutputOpts(g));
   }));
 
 bulk

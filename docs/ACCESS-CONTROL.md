@@ -33,13 +33,18 @@ than silently enabling composition.
 | `move` | false | Move existing messages, including bulk move |
 | `copy` | false | Copy existing messages into another folder |
 | `archive` | false | Archive existing messages |
-| `delete` | false | Delete messages, including bulk and permanent deletion |
 | `mark` | false | Change read/unread, flagged and junk properties; includes bulk mark-read |
 | `tag` | false | Set/remove tags on messages, including bulk tagging |
 | `tagCreate` | false | Create tag definitions |
 | `folderCreate` | false | Create folders |
 | `folderRename` | false | Rename folders |
-| `folderDelete` | false | Delete folders and potentially their contents |
+
+Message deletion, folder deletion, attachment deletion and emptying Trash are
+not implemented. There is no switch to enable them, and builds never request
+`messagesDelete`. Old `delete`/`folderDelete` configuration keys are rejected.
+To move mail to Trash, enable `move` and use `tb move <ids> <trash-folder-id>`
+after identifying the correct account's Trash folder. This calls the move API,
+never the delete API; moving messages back out of Trash is also possible.
 
 Always available: health/access checks, account/identity/folder listing, folder
 information, statistics, search, listing, ordinary/full/raw/batch/thread reading,
@@ -65,9 +70,10 @@ denied until explicitly classified in the add-on.
 - Disabling `downloadAttachments` blocks the dedicated attachment export route.
   It is **not a data-loss-prevention boundary**: always-available raw MIME reads
   can include attachment bytes, which a caller could extract independently.
-- Normal deletion follows account settings and can be irreversible (especially
-  in Trash). `delete=true` does not mean "trash only". Moving, archiving,
-  copying and folder deletion also have provider-dependent effects.
+- Thunderbird's delete API can be irreversible even without a permanent flag,
+  depending on account settings and the source folder. This fork does not use
+  that API at all. Account/server retention and automatic Trash cleanup remain
+  outside this connector's control; moving mail to Trash does not disable them.
 - Native permissions can be broader than operations: Thunderbird uses
   `addressBooks` for contact reading and `messagesMove` for copy/move/archive.
   The add-on router restricts operations further, before side effects.

@@ -31,8 +31,8 @@ by Thunderbird; this connector does not replace its IMAP synchronization.
 - Compose, reply, and forward default to `mode: "draft"`. Use `"open"` for human
   review in a compose window. Use `"send"` only with explicit sending approval.
 - Confirm the exact message IDs and operation before mailbox changes.
-  Permanent MCP deletion additionally requires `permanent: true, confirm: true`.
-  Those flags are not required for ordinary archive, move, or trash operations.
+  Message/folder deletion and emptying Trash are not implemented. Never try to
+  enable or recreate them. Move messages to the correct Trash folder using move.
 - Never blindly retry a timed-out write. It may already have completed.
   Inspect Thunderbird and ask before risking a duplicate draft or send.
 - Saving a draft is itself a mailbox write; it is not a read-only operation.
@@ -94,8 +94,8 @@ as paths. The CLI's attachment-download refuses overwrites.
 `junk`. It does not accept a scalar ID or tags.
 
 `email_archive` requires `messageIds` and `operation`:
-`archive`, `move` (with `destinationFolderId`), or `delete`.
-Delete without `permanent:true` uses Trash; archive does not mean Trash.
+`archive` or `move` (with `destinationFolderId`). Use the account's actual Trash
+folder ID for move-to-Trash; archive does not mean Trash. No deletion operation exists.
 
 `email_folders` requires `operation`: `all`, `list` with `accountId`, or
 `info` with `folderId`. Legacy `sync` returns an unsupported error.
@@ -104,7 +104,7 @@ and counters are not proof that mail is up to date.
 
 For explicitly requested CLI bulk work, consult `tb bulk --help` and
 [the command reference](https://github.com/vitalio-sh/thunderbird-cli/blob/main/docs/COMMANDS.md).
-There is no `tb bulk archive`. Bulk move/delete/tag apply filters before the
+There is no `tb bulk archive`. Bulk move/tag apply filters before the
 batch limit. Bulk move requires a matching extension that confirms filter support.
-CLI bulk delete and folder-delete require `--confirm`; other writes still need
+Deletion commands do not exist. Supported writes still need
 user authorization even when the program does not require a confirmation flag.

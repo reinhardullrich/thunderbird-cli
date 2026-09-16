@@ -61,8 +61,10 @@ These are defaults the end-user agent relies on. Don't flip them:
 
 - `email_search` excludes junk unless `includeJunk: true` is explicit
 - `email_compose` / `email_reply` / `email_forward` default to `mode: "draft"`
-- `email_archive operation=delete` requires `permanent=true` AND `confirm=true` for permanent deletion
-- CLI bulk ops (`tb bulk delete`, `tb folder-delete`) require `--confirm`
+- Never implement message/folder/attachment deletion or emptying Trash. Never
+  request `messagesDelete`. No configuration may enable these capabilities.
+- Use the existing move operation for placing mail in Trash; never emulate it
+  with a delete API, even with a non-permanent flag.
 
 See `SECURITY.md` for the full threat model.
 

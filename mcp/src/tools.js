@@ -377,11 +377,11 @@ export const tools = [
     },
   },
 
-  // ─── 10. Archive / Move / Delete ───────────────────────────────
+  // ─── 10. Archive / Move ────────────────────────────────────────
   {
     name: "email_archive",
     description:
-      "Archive, move, or delete messages. Operations: 'archive' (move to archive folder), 'move' (to specific folder), 'delete' (to trash). Permanent delete requires confirm=true.",
+      "Archive or move messages. Use 'move' with the account's Trash folder ID to move mail to Trash. Message/folder deletion and emptying Trash are not supported.",
     inputSchema: {
       type: "object",
       properties: {
@@ -392,23 +392,16 @@ export const tools = [
         },
         operation: {
           type: "string",
-          enum: ["archive", "move", "delete"],
+          enum: ["archive", "move"],
           description: "Operation type",
         },
         destinationFolderId: {
           type: "string",
           description: "Required for 'move' operation",
         },
-        permanent: {
-          type: "boolean",
-          description: "For delete: skip trash (requires confirm)",
-        },
-        confirm: {
-          type: "boolean",
-          description: "Required for permanent delete",
-        },
       },
       required: ["messageIds", "operation"],
+      additionalProperties: false,
     },
     handler: async (args, api) => {
       if (args.operation === "archive") {
@@ -421,15 +414,6 @@ export const tools = [
         return await api("POST", "/messages/move", {
           messageIds: args.messageIds,
           destinationFolderId: args.destinationFolderId,
-        });
-      }
-      if (args.operation === "delete") {
-        if (args.permanent && !args.confirm) {
-          return { error: "Permanent delete requires confirm=true" };
-        }
-        return await api("POST", "/messages/delete", {
-          messageIds: args.messageIds,
-          permanent: args.permanent || false,
         });
       }
       return { error: `Unknown operation: ${args.operation}` };

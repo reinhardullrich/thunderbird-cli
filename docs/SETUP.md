@@ -53,24 +53,18 @@ nohup node bridge/bridge.js > ~/.tb-bridge.log 2>&1 &
 
 ## Step 2: Install the Thunderbird Extension
 
-### Option A: Signed XPI (recommended for normal use)
+### Option A: Build this fork
 
-The extension is signed by Mozilla through addons.thunderbird.net for self-distribution. It installs permanently and survives Thunderbird restarts.
-
-1. Download the latest signed XPI from one of these locations:
-   - **GitHub Releases:** https://github.com/vitalio-sh/thunderbird-cli/releases/latest
-   - **Directly from `main`:** [`dist/releases/thunderbird_ai_bridge-2.1.0-tb.xpi`](../dist/releases/thunderbird_ai_bridge-2.1.0-tb.xpi)
-2. Open Thunderbird → **Add-ons and Themes**
-3. Click the ⚙ gear icon → **Install Add-on From File…**
-4. Select the downloaded `.xpi`
-5. Confirm when Thunderbird asks to install
-6. Check the bridge terminal — you should see: `[bridge] Extension connected`
-
-> The signed XPI is byte-identical to the source in `extension/`, but Mozilla's trust registry marks it as verified. You **must** use the XPI downloaded from ATN (or our GitHub Releases) — a locally-built XPI won't install permanently.
+Follow [Access control](ACCESS-CONTROL.md) to configure and build the XPI. Install
+that build through Thunderbird's Add-ons Manager, **Install Add-on From File**.
+Do not substitute upstream signed binaries: they still include deletion code
+and do not have this fork's restrictions. Older bundled binaries were removed.
+If your Thunderbird distribution requires signing, sign this fork's build.
 
 ### Option B: Temporary add-on (for developers making changes)
 
-Use this while editing `extension/src/background.js` during development. Temporary add-ons are removed on Thunderbird restart — but they're the only way to test uncommitted changes.
+Use this while editing during development. Temporary add-ons are removed on
+Thunderbird restart and use the source-default policy rather than a custom XPI policy.
 
 1. Open Thunderbird
 2. Navigate to `about:debugging` in the address bar

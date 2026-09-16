@@ -45,7 +45,6 @@ tb folders --all                          # list all folders across all accounts
 tb folder-info <folderId>                 # folder details with message counts
 tb folder-create <parentFolderId> <name>  # create subfolder
 tb folder-rename <folderId> <newName>     # rename folder
-tb folder-delete <folderId> --confirm     # delete folder (requires --confirm)
 ```
 
 ## Stats & Overview
@@ -118,13 +117,12 @@ tb recent [options]
   -l, --limit <n>          # max results (default: 50)
 ```
 
-## Move, Copy, Delete, Archive
+## Move, Copy, Archive
 
 ```bash
 tb move <messageIds> <folderId>               # move (comma-separated IDs)
 tb copy <messageIds> <folderId>               # copy
-tb delete <messageIds>                        # delete (to trash)
-tb delete <messageIds> --permanent --confirm  # permanent delete
+tb move <messageIds> <trashFolderId>           # move to the account's Trash folder
 tb archive <messageIds>                       # archive
 ```
 
@@ -219,16 +217,15 @@ tb contact <contactId>                    # contact details
 ```bash
 tb bulk mark-read <folderId> [-l <n>]                             # mark all read
 tb bulk move <from> <to> [--older-than <days>] [--from <addr>] [--subject <pat>]
-tb bulk delete <folderId> --confirm [--older-than <days>] [--from <addr>]
 tb bulk tag <folderId> <tagKey> [--older-than <days>] [--from <addr>]
 tb bulk fetch <folderId> [-l <n>]                                 # force IMAP download
 ```
 
-Bulk move/delete/tag apply filters before the batch limit. Bulk move refuses to
+Bulk move/tag apply filters before the batch limit. Bulk move refuses to
 run against an older extension that does not confirm this behavior. Upgrade the
 CLI and extension together. The default batch remains 100 matching messages,
 not the whole folder. A subject filter is a regular expression for bulk move
-and a case-insensitive substring for bulk delete/tag, as in earlier versions.
+and a case-insensitive substring for bulk tag, as in earlier versions.
 
 ## Output Format
 

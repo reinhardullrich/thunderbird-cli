@@ -27,6 +27,13 @@ fail closed. This does not retrofit already signed upstream XPIs. It is an
 operation restriction, not isolation against programs that can modify the
 profile or extract attachments from raw MIME reads.
 
+Message/folder deletion and emptying Trash are absent from this fork, not merely
+disabled. No policy setting enables them and builds never request `messagesDelete`.
+Move-to-Trash uses only `messages.move`. Thunderbird UI actions, other add-ons,
+server retention and programs that can rewrite this connector are outside this
+guarantee. The deletion scenarios in the historical design below are not
+implemented capabilities.
+
 ---
 
 ## Threat Model

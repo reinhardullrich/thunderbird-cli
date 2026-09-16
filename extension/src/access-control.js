@@ -6,13 +6,11 @@ const ACCESS_DEFAULTS = Object.freeze({
   move: false,
   copy: false,
   archive: false,
-  delete: false,
   mark: false,
   tag: false,
   tagCreate: false,
   folderCreate: false,
   folderRename: false,
-  folderDelete: false,
 });
 
 function normalizeAccessPolicy(config) {
@@ -34,11 +32,10 @@ function accessPermissions(policy) {
   const permissions = ["accountsRead", "addressBooks", "messagesRead", "idle", "tabs"];
   if (policy.compose) permissions.push("compose", "compose.save");
   if (policy.send) permissions.push("compose.send");
-  if (policy.move || policy.copy || policy.archive || policy.delete) permissions.push("messagesMove");
-  if (policy.delete) permissions.push("messagesDelete");
+  if (policy.move || policy.copy || policy.archive) permissions.push("messagesMove");
   if (policy.mark || policy.tag) permissions.push("messagesUpdate");
   if (policy.tagCreate) permissions.push("messagesTags");
-  if (policy.folderCreate || policy.folderRename || policy.folderDelete) permissions.push("accountsFolders");
+  if (policy.folderCreate || policy.folderRename) permissions.push("accountsFolders");
   return permissions;
 }
 
@@ -48,9 +45,9 @@ const READ_POST_PATHS = new Set([
 ]);
 const WRITE_PATHS = Object.freeze({
   "/messages/move": "move", "/messages/copy": "copy", "/messages/archive": "archive",
-  "/messages/delete": "delete", "/bulk/delete": "delete", "/bulk/tag": "tag",
+  "/bulk/tag": "tag",
   "/tags/create": "tagCreate", "/folders/create": "folderCreate",
-  "/folders/rename": "folderRename", "/folders/delete": "folderDelete",
+  "/folders/rename": "folderRename",
 });
 
 function authorizeRequest(method, path, body = {}) {

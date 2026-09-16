@@ -114,7 +114,6 @@ function handle({ method, path, body }) {
   if (path?.match(/\/attachment$/) && method === "POST")
     return { name: "f.pdf", size: 5000, contentType: "application/pdf", data: "SGVsbG8=" };
   if (path === "/messages/move") return { success: true, moved: (body?.messageIds || []).length };
-  if (path === "/messages/delete") return { success: true, deleted: (body?.messageIds || []).length };
   if (path === "/messages/archive") return { success: true, archived: (body?.messageIds || []).length };
   if (path === "/messages/update") return { success: true };
   if (path === "/compose")
@@ -457,18 +456,18 @@ test(
   (r) => r.success
 );
 test(
-  "email_archive operation=delete",
+  "email_archive rejects removed delete operation",
   await client.callTool("email_archive", { messageIds: [1], operation: "delete" }),
-  (r) => r.success
+  (r) => r.code === "INVALID_ARGS"
 );
 test(
-  "email_archive permanent delete without confirm",
+  "email_archive rejects removed permanent deletion",
   await client.callTool("email_archive", {
     messageIds: [1],
     operation: "delete",
     permanent: true,
   }),
-  (r) => r.error?.includes("confirm")
+  (r) => r.code === "INVALID_ARGS"
 );
 
 test(

@@ -110,7 +110,7 @@ if (typeof messenger !== "undefined" && messenger.idle?.onStateChanged) {
 async function handleRequest({ method, path, body }) {
   if (body != null) {
     if (typeof body !== "object" || Array.isArray(body)) throw new Error("INVALID_ARGS: body must be an object");
-    for (const key of ["send", "draft", "open", "permanent", "isHTML", "replyAll", "read", "flagged", "junk", "unreadOnly", "hasAttachment", "includeJunk"]) {
+    for (const key of ["send", "draft", "open", "isHTML", "replyAll", "read", "flagged", "junk", "unreadOnly", "hasAttachment", "includeJunk"]) {
       if (body[key] !== undefined && typeof body[key] !== "boolean") throw new Error(`INVALID_ARGS: ${key} must be boolean`);
     }
     const validId = id => Number.isSafeInteger(id) && id > 0;
@@ -203,13 +203,6 @@ async function handleRequest({ method, path, body }) {
     const folder = await messenger.folders.get(folderId, false);
     const renamed = await messenger.folders.rename(folder, newName);
     return { success: true, folder: { id: renamed.id, name: renamed.name, path: renamed.path } };
-  }
-
-  if (path === "/folders/delete" && method === "POST") {
-    const { folderId } = body || {};
-    const folder = await messenger.folders.get(folderId, false);
-    await messenger.folders.delete(folder);
-    return { success: true };
   }
 
   // ─── Search ─────────────────────────────────────────────────────
@@ -323,14 +316,6 @@ async function handleRequest({ method, path, body }) {
     const folder = await messenger.folders.get(destinationFolderId, false);
     await messenger.messages.copy(messageIds, folder);
     return { success: true, copied: messageIds.length };
-  }
-
-  // ─── Delete ─────────────────────────────────────────────────────
-
-  if (path === "/messages/delete" && method === "POST") {
-    const { messageIds, permanent = false } = body;
-    await messenger.messages.delete(messageIds, permanent);
-    return { success: true, deleted: messageIds.length };
   }
 
   // ─── Update (mark read/flagged/junk/tags) ───────────────────────
@@ -725,16 +710,6 @@ async function handleRequest({ method, path, body }) {
   }
 
   // ─── Bulk operations ───────────────────────────────────────────
-
-  if (path === "/bulk/delete" && method === "POST") {
-    const folder = await messenger.folders.get(body.folderId, false);
-    const result = await collectMessages(() => messenger.messages.list(folder), body.limit ?? 100, { accept: bulkMessageFilter(body) });
-    const filtered = result.messages;
-    if (filtered.length > 0) {
-      await messenger.messages.delete(filtered.map((m) => m.id), false);
-    }
-    return { success: true, deleted: filtered.length };
-  }
 
   if (path === "/bulk/tag" && method === "POST") {
     const folder = await messenger.folders.get(body.folderId, false);

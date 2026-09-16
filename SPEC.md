@@ -168,8 +168,6 @@ tb folder-create <parentFolderId> <name>
 # Rename folder
 tb folder-rename <folderId> <newName>
 
-# Delete folder
-tb folder-delete <folderId>
 ```
 
 ### 4. Messages — Listing
@@ -354,12 +352,8 @@ tb move <id1,id2,id3> <destinationFolderId>
 tb copy <messageId> <destinationFolderId>
 tb copy <id1,id2,id3> <destinationFolderId>
 
-# Delete (to trash)
-tb delete <messageId>
-tb delete <id1,id2,id3>
-
-# Permanent delete (skip trash) — requires --confirm flag
-tb delete <messageId> --permanent --confirm
+# Move to Trash (never calls the delete API)
+tb move <messageId> <trashFolderId>
 
 # Archive
 tb archive <messageId>
@@ -479,12 +473,6 @@ tb bulk move <sourceFolderId> <destFolderId> [options]
   --from <address>         # filter by sender
   --subject <pattern>      # filter by subject (substring match)
   --limit <n>
-
-# Bulk delete
-tb bulk delete <folderId> [options]
-  --older-than <days>
-  --from <address>
-  --confirm                # required for delete operations
 
 # Bulk tag
 tb bulk tag <folderId> <tagKey> [options]
@@ -620,7 +608,7 @@ Timeout: 30 seconds. Configurable via `--timeout <ms>` flag on CLI.
 | List folders | `messenger.accounts.get(id, true)` | ✅ Implemented |
 | Create folder | `messenger.folders.create()` | ✅ Implemented |
 | Rename folder | `messenger.folders.rename()` | ✅ Implemented |
-| Delete folder | `messenger.folders.delete()` | ✅ Implemented |
+| Delete folder | Not exposed | Removed; cannot be enabled |
 | Folder info | `messenger.folders.getFolderInfo()` | ✅ Implemented |
 
 | Search messages | `messenger.messages.query()` | ✅ Implemented |
@@ -629,7 +617,7 @@ Timeout: 30 seconds. Configurable via `--timeout <ms>` flag on CLI.
 | Raw message | `messenger.messages.getRaw()` | ✅ Implemented |
 | Move messages | `messenger.messages.move()` | ✅ Implemented |
 | Copy messages | `messenger.messages.copy()` | ✅ Implemented |
-| Delete messages | `messenger.messages.delete()` | ✅ Implemented |
+| Delete messages / empty Trash | Not exposed | Removed; cannot be enabled |
 | Update flags | `messenger.messages.update()` | ✅ Implemented |
 | Tags | `messenger.messages.listTags()` | ✅ Implemented |
 | Create tag | `messenger.messages.createTag()` | ✅ Implemented |
@@ -743,7 +731,7 @@ Note: Extension development cannot happen in Docker. Edit `extension/src/backgro
 - [x] `--max-body` truncation
 - [x] `--fields` flag for field filtering
 - [x] Search excludes junk by default (`--include-junk` to override)
-- [x] Folder CRUD (create, rename, delete)
+- [x] Folder listing, creation and rename; deletion deliberately absent
 - [x] Tag create
 - [x] Attachment listing and download
 - [x] Archive command
@@ -763,7 +751,7 @@ Note: Extension development cannot happen in Docker. Edit `extension/src/backgro
 ### Phase 4: Bulk Operations
 - [x] `tb bulk mark-read`
 - [x] `tb bulk move` with filters (--older-than, --from, --subject)
-- [x] `tb bulk delete` with --confirm guard
+- [x] No deletion or empty-Trash API exposed
 - [x] `tb bulk tag`
 - [x] `tb bulk fetch`
 - [ ] Progress output for long-running bulk operations
@@ -985,8 +973,6 @@ Dangerous operations require explicit confirmation:
 ```bash
 # These commands include a safety warning in output:
 tb compose --send          # Warning: "About to send email. Verify recipient and content."
-tb delete --permanent      # Warning: "Permanent deletion cannot be undone."
-tb bulk delete             # Requires --confirm flag
 tb forward                 # Warning: "Forwarding may expose original content to new recipient."
 ```
 
@@ -1038,7 +1024,9 @@ The MCP server:
 
 ### Tool Catalog
 
-The 12 MCP tools are **curated** for AI agent use cases. Bulk admin operations (folder CRUD, identity management, bulk delete, etc.) are intentionally excluded — they belong in the CLI for explicit human control.
+The 12 MCP tools are **curated** for AI agent use cases. Bulk admin operations
+such as bulk move/tag belong in the CLI for explicit human control. Deletion
+and emptying Trash are absent from every interface.
 
 | MCP Tool | Maps to CLI commands |
 |----------|---------------------|
@@ -1051,7 +1039,7 @@ The 12 MCP tools are **curated** for AI agent use cases. Bulk admin operations (
 | `email_reply` | `tb reply` |
 | `email_forward` | `tb forward` |
 | `email_mark` | `tb mark` (batch) |
-| `email_archive` | `tb archive`, `tb move`, `tb delete` (consolidated) |
+| `email_archive` | `tb archive`, `tb move` (including move to Trash) |
 | `email_attachments` | `tb attachments`, `tb attachment-download` |
 | `email_folders` | `tb folders`, `tb folder-info`, `tb sync` (consolidated) |
 
@@ -1061,7 +1049,7 @@ The 12 MCP tools are **curated** for AI agent use cases. Bulk admin operations (
 |---|---|---|
 | Audience | Humans + scripts | AI agents |
 | Discovery | `tb --help` | Tool descriptions in LLM context |
-| Bulk admin ops | Yes (`bulk delete`, `tag-create`, etc.) | No — too risky for autonomous use |
+| Bulk admin ops | Yes (`bulk move`, `tag-create`, etc.) | No — too risky for autonomous use |
 | Folder CRUD | Yes | No — destructive |
 | Identity management | Yes | No — admin operation |
 | Cost per added tool | Negligible | Tokens in every conversation |
