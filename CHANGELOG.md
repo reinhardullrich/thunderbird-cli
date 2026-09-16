@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Search tag and size filters are applied by Thunderbird before the result limit, so matching messages beyond the first unfiltered batch are not missed.
+- Limited message collection checks for an additional matching message before reporting `hasMore`, including when truncating within the final page, and releases unfinished message lists.
+
 ## [1.1.0] — 2026-09-14
 
 npm packages `thunderbird-cli`, `thunderbird-cli-bridge`, `thunderbird-cli-mcp` 1.1.0; Thunderbird extension 2.1.0.
