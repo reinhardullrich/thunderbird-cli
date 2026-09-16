@@ -70,6 +70,105 @@ const ctx = vm.createContext({ messenger, console, WebSocket: class {}, setTimeo
 ctx.TB_ACCESS_CONFIG = { send: true, tag: true };
 for (const file of ['access-control.js', 'thread-utils.js', 'background.js']) vm.runInContext(fs.readFileSync(new URL('../extension/src/' + file, import.meta.url), 'utf8'), ctx);
 const handle = (method, path, body) => ctx.handleRequest({ method, path, body });
+await test('account roots skip native counts while real-folder failures propagate', async () => {
+  const savedFolders = messenger.folders, savedAccounts = messenger.accounts;
+  const leaf = { id: 'leaf', name: 'Leaf', isRoot: false };
+  const child = { id: 'child', name: 'Child', isRoot: false, subFolders: [leaf] };
+  const rootFolder = { id: 'root', name: 'Root', isRoot: true, subFolders: [child] };
+  messenger.accounts = { get: async () => ({ rootFolder }), list: async () => [{ id: 'account', rootFolder }] };
+  const routes = [['GET', '/accounts/account/folders'],
+    ['GET', '/stats'], ['POST', '/stats', {}], ['POST', '/stats', { folders: true }]];
+  let failedFolder, count = 7, queried = [];
+  messenger.folders = { get: async id => [rootFolder, child, leaf].find(f => f.id === id), getFolderInfo: async folder => {
+    queried.push(folder.id);
+    if (folder.isRoot) throw Error('Native API does not support root counts');
+    if (folder.id === failedFolder) throw Error('Native count failure');
+    return { totalMessageCount: count, unreadMessageCount: count ? 2 : 0, newMessageCount: 0 };
+  } };
+  try {
+    for (count of [7, 0]) {
+      for (const [method, path, body] of routes) {
+        queried = [];
+        const result = await handle(method, path, body);
+        assert(!queried.includes('root'));
+        assert(queried.includes('child') && queried.includes('leaf'));
+        const rows = Array.isArray(result) ? result : result.accounts[0].folderDetails;
+        if (rows) {
+          assert.equal(rows.length, 3);
+          assert.equal(rows[0].totalMessageCount, 0);
+          assert.equal(rows[1].totalMessageCount, count);
+          assert.equal(rows[2].depth, 2);
+        }
+        if (!Array.isArray(result)) {
+          assert.equal(result.totalMessages, 2 * count);
+          assert.equal(result.totalUnread, count ? 4 : 0);
+        }
+      }
+    }
+    for (failedFolder of ['child', 'leaf']) {
+      for (const [method, path, body] of routes) {
+        await assert.rejects(handle(method, path, body), /Native count failure/);
+      }
+      await assert.rejects(handle('POST', '/folders/info', { folderId: failedFolder }), /Native count failure/);
+    }
+    failedFolder = null;
+    assert.equal((await handle('POST', '/folders/info', { folderId: 'child' })).totalMessageCount, 0);
+    await assert.rejects(handle('POST', '/folders/info', { folderId: 'root' }), /does not support root/);
+    rootFolder.subFolders = [];
+    assert.equal((await handle('GET', '/stats')).totalMessages, 0);
+  } finally { messenger.folders = savedFolders; messenger.accounts = savedAccounts; }
+});
+await test('download status uses native headersOnly, accepts empty bodies and propagates read failures', async () => {
+  const savedGet = messenger.messages.get, savedFull = messenger.messages.getFull;
+  try {
+    for (const headersOnly of [false, true]) {
+      messenger.messages.get = async id => ({ ...header(id), headersOnly });
+      for (const full of [{ contentType: 'text/plain', body: '' },
+        { parts: [{ contentType: 'application/pdf', name: 'file.pdf', partName: '1.2' }] }]) {
+        messenger.messages.getFull = async (id, options) => {
+          assert.equal(id, 1); assert.equal(options.decrypt, false);
+          return full;
+        };
+        const check = await handle('GET', '/messages/1/check-download');
+        const status = await handle('GET', '/messages/1/download-status');
+        assert.equal(check.downloadState, headersOnly ? 'headers_only' : 'full');
+        assert.equal(status.state, check.downloadState);
+        assert.equal(check.hasBody, !headersOnly);
+      }
+    }
+    for (const path of ['check-download', 'download-status']) {
+      let headersOnly = true;
+      messenger.messages.get = async id => ({ ...header(id), headersOnly });
+      messenger.messages.getFull = async () => { headersOnly = false; return { contentType: 'text/plain', body: '' }; };
+      const result = await handle('GET', '/messages/1/' + path);
+      assert.equal(result.state ?? result.downloadState, 'full');
+    }
+    messenger.messages.get = async () => { throw Error('Native header failure'); };
+    for (const path of ['check-download', 'download-status']) {
+      await assert.rejects(handle('GET', '/messages/1/' + path), /Native header failure/);
+    }
+    messenger.messages.getFull = async () => { throw Error('Native read failure'); };
+    for (const path of ['check-download', 'download-status']) {
+      await assert.rejects(handle('GET', '/messages/1/' + path), /Native read failure/);
+    }
+  } finally { messenger.messages.get = savedGet; messenger.messages.getFull = savedFull; }
+});
+await test('download check reports real attachment presence and propagates listing failures', async () => {
+  const original = messenger.messages.listAttachments;
+  try {
+    for (const count of [0, 1, 2]) {
+      messenger.messages.listAttachments = async id => {
+        assert.equal(id, 1);
+        return Array.from({ length: count }, () => ({ name: 'note.txt', partName: '1.2' }));
+      };
+      const result = await handle('GET', '/messages/1/check-download');
+      assert.equal(result.hasAttachments, count > 0);
+      assert.equal(result.hasBody, true);
+    }
+    messenger.messages.listAttachments = async () => { throw new Error('Attachment listing failed'); };
+    await assert.rejects(handle('GET', '/messages/1/check-download'), /Attachment listing failed/);
+  } finally { messenger.messages.listAttachments = original; }
+});
 await test('extension rejects malformed IDs and non-boolean operation flags before doing work', async () => {
   for (const body of [{ messageIds: [1.2] }, { messageId: '1' }, { send: 'false' }, { flagged: 'false' }, []]) {
     await assert.rejects(handle('POST', '/compose', body), /INVALID_ARGS/);
@@ -164,7 +263,8 @@ const server = createServer(async (req, res) => {
   received++;
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(req.url === '/messages/list' ? listResult : req.url.endsWith('/attachments') ? [{ name: filename, partName: '1.2' }]
-    : req.url.endsWith('/attachment') ? { data: Buffer.from('synthetic').toString('base64') } : { success: true }));
+    : req.url.endsWith('/attachment') ? { data: Buffer.from('synthetic').toString('base64') }
+    : req.url === '/messages/1' ? { parts: { text: 'x'.repeat(2000) } } : { success: true }));
 });
 server.listen(0, '127.0.0.1'); await once(server, 'listening');
 async function cli(args) {
@@ -176,6 +276,13 @@ async function cli(args) {
   const [code] = await once(p, 'exit'); return { code, stdout, stderr };
 }
 try {
+  await test('actual CLI body-only output obeys max-body without changing short or uncapped output', async () => {
+    for (const [limit, expected] of [[10, 'x'.repeat(10) + '\n...[truncated]'], [2000, 'x'.repeat(2000)], [null, 'x'.repeat(2000)]]) {
+      const r = await cli([...(limit === null ? [] : ['--max-body', String(limit)]), 'read', '1', '--body-only']);
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(JSON.parse(r.stdout), expected);
+    }
+  });
   await test('bridge rejects unsupported read-only mode instead of silently enabling writes', async () => {
     const p = spawn(process.execPath, ['bridge/bridge.js', '--read-only'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = ''; p.stderr.on('data', b => { stderr += b; }); p.stdout.resume();

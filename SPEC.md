@@ -264,7 +264,10 @@ Emails have wildly different formats. The CLI must normalize them:
 
 #### Download State Detection
 
-IMAP accounts may have headers-only or partially downloaded messages.
+Both status commands verify retrieval without decrypting, then read Thunderbird's
+native `headersOnly` flag. Empty and attachment-only messages can be `full`;
+`hasBody` means not headers-only, not nonempty or decrypted text. Retrieval errors
+are propagated. Checks may fetch mail and do not prove permanent offline caching.
 
 ```bash
 tb read <messageId> --check-download
@@ -273,11 +276,10 @@ tb read <messageId> --check-download
   "ok": true,
   "data": {
     "id": 42,
-    "downloadState": "full",     // "full" | "headers_only" | "partial"
+    "downloadState": "full",     // "full" | "headers_only"
     "size": 15234,
     "hasBody": true,
-    "hasAttachments": true,
-    "attachmentCount": 2
+    "hasAttachments": true
   }
 }
 

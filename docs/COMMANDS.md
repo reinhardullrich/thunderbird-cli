@@ -102,6 +102,13 @@ tb read-batch <id1,id2,id3>           # read multiple messages at once
 tb thread <messageId>                 # full conversation thread
 ```
 
+`--max-body N` also limits `--body-only` output; truncated text ends with
+`...[truncated]`. Folder information, folder listings and statistics report
+native count failures as errors, not as zero messages.
+Recursive lists and statistics skip native count requests for account-root
+containers (which hold no messages) and still visit their real child folders.
+A direct `folder-info` request for a root reports Thunderbird's unsupported error.
+
 Each thread entry carries `threadMatch`: `"references"` when it was found through the
 `References` / `In-Reply-To` headers, or `"subject"` when it was only matched by identical
 normalized subject (later replies that don't reference the message yet). Subject matches are a
@@ -202,6 +209,13 @@ tb sync <folderId>                        # unsupported: returns an explicit err
 tb sync --all                             # unsupported: use Thunderbird's Get Messages
 tb sync-status <folderId>                 # current folder counts, not IMAP sync progress
 ```
+
+`download-status` and `read --check-download` verify retrieval with `getFull`
+without decrypting, then use Thunderbird's native `headersOnly` flag. Empty or
+attachment-only messages are not classified by text length. Retrieval failures
+are errors. `full` (and `hasBody=true`) means not headers-only, not necessarily
+nonempty or decrypted text. The check may fetch mail; it does not prove that a
+permanent offline copy is cached. Attachment listing failures also remain errors.
 
 ## Contacts
 

@@ -133,7 +133,12 @@ const wss = new WebSocketServer({
       console.error(`[bridge] Rejected WebSocket connection from web origin ${req.headers.origin}`);
       return false;
     }
-    const token = new URL(req.url, "http://localhost").searchParams.get("token");
+    let token;
+    try {
+      token = new URL(req.url, "http://localhost").searchParams.get("token");
+    } catch {
+      return false;
+    }
     return isAuthorized({ headers: { authorization: `Bearer ${token || ""}` } });
   },
 });

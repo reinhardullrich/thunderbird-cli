@@ -127,6 +127,7 @@ function compactify(data) {
 
 function truncateBody(data, maxChars) {
   if (!maxChars || maxChars <= 0) return data;
+  if (typeof data === "string") return data.length > maxChars ? data.slice(0, maxChars) + "\n...[truncated]" : data;
   if (Array.isArray(data)) return data.map(item => truncateBody(item, maxChars));
   if (data && typeof data === "object") {
     const result = { ...data };

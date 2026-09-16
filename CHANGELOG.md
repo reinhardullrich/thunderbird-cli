@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add-on-enforced JSON access policy shared by CLI and optional MCP: always-on reading/searching, switchable attachment downloads (on by default), draft preparation, and separately gated sending/mailbox operations. XPI builds validate settings and derive native permissions; `tb access` reports the installed policy. Existing installed or signed upstream add-ons are unchanged.
 
 ### Fixed
+- Malformed WebSocket handshake URLs are rejected without crashing the bridge.
+- Download checks report actual attachment presence, use Thunderbird's native `headersOnly` flag after retrieval, and propagate native failures instead of misclassifying empty or attachment-only messages.
+- Folder listings and statistics skip unsupported count requests for account-root containers while still reporting genuine child-folder count failures.
+- CLI `--body-only` output now obeys `--max-body`.
 - Attachment downloads reject unsafe filenames and refuse overwrites; XPI builds no longer produce world-writable files.
 - MCP validates tool arguments, preserves zero-valued search limits/size bounds, and reports handler errors as tool failures. HTTP clients also reject error payloads returned with status 200.
 - Body limits cover HTML, raw messages, and CLI batch results. Native attachment listing includes text/HTML files without appending their contents to the message body.

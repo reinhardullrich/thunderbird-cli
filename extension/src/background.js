@@ -187,8 +187,7 @@ async function handleRequest({ method, path, body }) {
     const { folderId } = body || {};
     const folder = await messenger.folders.get(folderId, false);
     if (!folder) return { error: "Folder not found" };
-    let info = {};
-    try { info = await messenger.folders.getFolderInfo(folder); } catch {}
+    const info = await messenger.folders.getFolderInfo(folder);
     return {
       id: folder.id, name: folder.name, path: folder.path, type: folder.type,
       unreadMessageCount: info.unreadMessageCount || 0,
@@ -365,38 +364,21 @@ async function handleRequest({ method, path, body }) {
     return { ...formatMessage(msg), parts };
   }
 
-  // Check download state
-  const checkDlMatch = path.match(/^\/messages\/(\d+)\/check-download$/);
-  if (checkDlMatch && method === "GET") {
-    const msgId = parseInt(checkDlMatch[1]);
+  // Verify retrieval, then use Thunderbird's native partial-message flag.
+  const downloadMatch = path.match(/^\/messages\/(\d+)\/(check-download|download-status)$/);
+  if (downloadMatch && method === "GET") {
+    const msgId = parseInt(downloadMatch[1]);
+    await messenger.messages.getFull(msgId, { decrypt: false });
     const msg = await messenger.messages.get(msgId);
-    let downloadState = "unknown";
-    try {
-      const full = await messenger.messages.getFull(msgId);
-      const parts = extractParts(full);
-      downloadState = (parts.text || parts.html) ? "full" : "headers_only";
-    } catch {
-      downloadState = "headers_only";
+    const downloadState = msg.headersOnly ? "headers_only" : "full";
+    if (downloadMatch[2] === "download-status") {
+      return { state: downloadState, size: msg.size };
     }
     return {
       id: msg.id, downloadState, size: msg.size,
       hasBody: downloadState === "full",
-      hasAttachments: false,
+      hasAttachments: (await messenger.messages.listAttachments(msgId)).length > 0,
     };
-  }
-
-  // Download status
-  const dlStatusMatch = path.match(/^\/messages\/(\d+)\/download-status$/);
-  if (dlStatusMatch && method === "GET") {
-    const msgId = parseInt(dlStatusMatch[1]);
-    const msg = await messenger.messages.get(msgId);
-    let state = "headers_only";
-    try {
-      const full = await messenger.messages.getFull(msgId);
-      const parts = extractParts(full);
-      if (parts.text || parts.html) state = "full";
-    } catch { /* headers_only */ }
-    return { state, size: msg.size };
   }
 
   // Attachments list
@@ -832,8 +814,8 @@ function extractParts(part, result = { text: "", html: "", attachments: [] }) {
 }
 
 async function flattenFolders(folder, depth = 0) {
-  let info = {};
-  try { info = await messenger.folders.getFolderInfo(folder); } catch {}
+  // Account roots are containers; Thunderbird rejects native counts for them.
+  const info = folder.isRoot ? {} : await messenger.folders.getFolderInfo(folder);
   const result = [{
     id: folder.id, name: folder.name, path: folder.path,
     type: folder.type,
@@ -851,8 +833,7 @@ async function flattenFolders(folder, depth = 0) {
 
 async function countFolder(folder, stats) {
   stats.folders++;
-  let info = {};
-  try { info = await messenger.folders.getFolderInfo(folder); } catch {}
+  const info = folder.isRoot ? {} : await messenger.folders.getFolderInfo(folder);
   stats.unreadTotal += info.unreadMessageCount || 0;
   stats.messageTotal += info.totalMessageCount || 0;
   if (folder.subFolders) {

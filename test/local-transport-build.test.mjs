@@ -47,6 +47,24 @@ try {
     const m = JSON.parse(raw); forwarded++;
     socket.send(JSON.stringify({ id: m.id, result: m.body }));
   });
+  await new Promise((resolve, reject) => {
+    const req = request({ hostname: '127.0.0.1', port: wsPort, path: '//[', headers: {
+      Connection: 'Upgrade', Upgrade: 'websocket',
+      'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13',
+    } }, res => {
+      res.resume();
+      try { assert.equal(res.statusCode, 401); resolve(); } catch (error) { reject(error); }
+    });
+    req.on('error', reject);
+    req.setTimeout(2000, () => req.destroy(new Error('Malformed upgrade was not rejected')));
+    req.on('upgrade', (_, upgraded) => {
+      upgraded.destroy(); reject(new Error('Malformed upgrade was accepted'));
+    });
+    req.end();
+  });
+  assert.equal(proc.exitCode, null, 'Malformed URLs must not kill the bridge');
+  assert.equal(socket.readyState, WebSocket.OPEN, 'Existing extension must remain connected');
+  console.log('PASS: malformed unauthenticated WebSocket URL rejected without disrupting the bridge');
   const original = { body: 'Gr\u00fc\u00dfe, \u0395\u03bb\u03bb\u03ac\u03b4\u03b1' };
   const encoded = Buffer.from(JSON.stringify(original));
   const split = encoded.indexOf(Buffer.from('\u00fc')) + 1;
