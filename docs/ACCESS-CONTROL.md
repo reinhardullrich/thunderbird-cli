@@ -79,8 +79,8 @@ denied until explicitly classified in the add-on.
   The add-on router restricts operations further, before side effects.
 - This does not protect against a program that can modify the add-on/profile,
   another full-access add-on, or untrusted callers reading always-readable mail.
-  Keep bridge authentication and OS protections. The public bridge's existing
-  WebSocket peer-authentication limitation is unchanged.
+  Keep bridge authentication and OS protections. Setting TB_AUTH_TOKEN protects
+  both HTTP and WebSocket; build the add-on with the matching private auth file.
 - Previously signed upstream XPIs and existing installations do not acquire
   this policy automatically. Build and install this fork's add-on.
 

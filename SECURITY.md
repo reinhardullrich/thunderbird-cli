@@ -13,10 +13,10 @@ audit log, write rate limiter, or bridge `--read-only` mode. `--read-only` is re
 silently accepted. Email bodies, subjects, senders, and attachments remain
 untrusted data; an agent must not execute instructions found in them.
 
-Implemented: loopback listeners, optional HTTP bearer-token authentication,
+Implemented: loopback listeners, optional HTTP and WebSocket token authentication,
 browser-origin/Host checks, a single active extension connection, bounded HTTP
-request bodies, and MCP input-schema validation. The WebSocket listener does
-not authenticate the first local non-browser client. These protections do not
+request bodies, and MCP input-schema validation. When TB_AUTH_TOKEN is set,
+the WebSocket handshake requires the same token as HTTP. These protections do not
 isolate mutually untrusted programs running under the same OS user.
 
 This fork additionally enforces a validated, build-time [access policy](docs/ACCESS-CONTROL.md)
@@ -102,8 +102,9 @@ Defense: set `TB_AUTH_TOKEN` in the bridge daemon's environment so every HTTP re
 access — a token readable by every local process restores the original problem. See the bridge
 README's Authentication section.
 
-The token covers the HTTP listener only. The WebSocket listener the extension connects to still
-accepts any local non-browser connection.
+The token also covers the WebSocket handshake. Build the matching private add-on
+with `--auth-file local-runtime/bridge.env`; see [local setup](docs/LOCAL-SETUP.md).
+The resulting XPI contains the token and must not be published or shared.
 
 **Scenario 7: Hostile web page in the user's browser**
 

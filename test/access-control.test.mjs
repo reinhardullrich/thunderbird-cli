@@ -213,7 +213,7 @@ await test("real bridge, CLI and MCP handlers preserve add-on denial and access 
     const ctx = context({ downloadAttachments: false });
     // Run the real add-on socket handler, redirected to our isolated test bridge.
     ctx.WebSocket = class extends WebSocket {
-      constructor() { super(`ws://127.0.0.1:${wsPort}`); peer = this; }
+      constructor() { super(`ws://127.0.0.1:${wsPort}/?token=${process.env.TB_AUTH_TOKEN}`); peer = this; }
     };
     vm.runInContext("ws = null; connect()", ctx);
     await once(peer, "open");

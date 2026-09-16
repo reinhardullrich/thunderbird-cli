@@ -79,7 +79,7 @@ await test('reply preserves native quotation and refuses to send after preparati
   let opened, updated, sent = 0;
   messenger.compose = {
     beginReply: async (...args) => { opened = args; return { id: 7 }; },
-    getComposeDetails: async () => ({ plainTextBody: 'Original quotation', isPlainText: true }),
+    getComposeDetails: async () => ({ type: 'reply', relatedMessageId: 1, plainTextBody: 'Original quotation', isPlainText: true }),
     setComposeDetails: async (_id, details) => { updated = details; },
     sendMessage: async () => { sent++; },
   };
@@ -108,7 +108,7 @@ await test('HTML reply prepends content inside the native document without repla
     }
   };
   messenger.compose.beginReply = async (_id, _type, d) => { opened = d; return { id: 7 }; };
-  messenger.compose.getComposeDetails = async () => ({ body: '<blockquote>Quote</blockquote>', isPlainText: false });
+  messenger.compose.getComposeDetails = async () => ({ type: 'reply', relatedMessageId: 1, body: '<blockquote>Quote</blockquote>', isPlainText: false });
   messenger.compose.setComposeDetails = async (_id, d) => { details = d; };
   await handle('POST', '/reply', { messageId: 1, body: '<b>Answer</b>', isHTML: true, open: true });
   assert.equal(opened.isPlainText, false); assert.equal(parsed.type, 'text/html');

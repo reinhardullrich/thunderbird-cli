@@ -85,12 +85,14 @@ Give the token only to the callers that should have mailbox access — putting i
 local process can read it (a world-readable file, a shared shell profile) puts you back where you
 started.
 
-> The WebSocket listener on `:7701`, which the Thunderbird extension connects to, is **not**
-> covered by `TB_AUTH_TOKEN`.
+The WebSocket listener on `:7701` requires the same token in its handshake when
+`TB_AUTH_TOKEN` is configured. Build the private add-on using
+`--auth-file local-runtime/bridge.env`; see [local setup](../docs/LOCAL-SETUP.md).
+Never publish the resulting token-containing XPI.
 
 An existing extension connection cannot be replaced by a second connection.
-This does not authenticate the first client: another local process can still
-occupy the slot before Thunderbird connects. Treat the host user as trusted.
+Without token authentication, another local process can occupy the slot before
+Thunderbird connects. Treat the host user, who can read private files, as trusted.
 
 The bridge accepts only `--port` and `--ws-port` arguments. There is no
 `--read-only` mode; unknown options fail at startup. HTTP request bodies are

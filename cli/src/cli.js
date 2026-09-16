@@ -9,6 +9,8 @@
 
 import { createRequire } from "module";
 import { Command } from "commander";
+import { readFileSync, statSync } from "fs";
+import { basename, resolve } from "path";
 import { api, output, outputError, getConfig, parseRelativeDate } from "./client.js";
 
 const { version } = createRequire(import.meta.url)("../package.json");
@@ -47,6 +49,19 @@ function run(fn) {
       outputError(err, program.opts().format);
     }
   };
+}
+
+function attachmentPayload(paths = []) {
+  let total = 0;
+  return paths.map(raw => {
+    const path = resolve(raw);
+    const stat = statSync(path);
+    total += stat.size;
+    if (!stat.isFile() || total > 25 * 1024 * 1024) {
+      throw new Error("Attachments must be regular files totaling at most 25 MiB");
+    }
+    return { name: basename(path), data: readFileSync(path).toString("base64") };
+  });
 }
 
 function parseMessageId(id) {
@@ -505,6 +520,7 @@ program
   .option("--subject <text>", "subject line")
   .option("--body <text>", "message body")
   .option("--body-file <path>", "read body from file")
+  .option("--attach <path>", "attach local file (repeatable)", (v, p) => [...p, v], [])
   .option("--html", "body is HTML")
   .option("--from <identityId>", "send from specific identity")
   .option("--priority <level>", "priority: highest|high|normal|low|lowest")
@@ -524,6 +540,7 @@ program
       to: opts.to,
       subject: opts.subject || "",
       body,
+      attachments: attachmentPayload(opts.attach),
       isHTML: opts.html || false,
     };
     if (opts.cc) payload.cc = opts.cc;
@@ -552,6 +569,9 @@ program
   .description("Reply to a message")
   .option("--body <text>", "reply text")
   .option("--body-file <path>", "read reply from file")
+  .option("--to <address>", "override recipients and clear Cc/Bcc")
+  .option("--from <identityId>", "use a Thunderbird sender identity")
+  .option("--attach <path>", "attach local file (repeatable)", (v, p) => [...p, v], [])
   .option("--all", "reply to all")
   .option("--html", "body is HTML")
   .option("--draft", "save as draft (default)")
@@ -570,7 +590,10 @@ program
       body,
       replyAll: opts.all || false,
       isHTML: opts.html || false,
+      attachments: attachmentPayload(opts.attach),
     };
+    if (opts.to) payload.to = opts.to.split(",").map(s => s.trim());
+    if (opts.from) payload.identityId = opts.from;
 
     if (opts.send) {
       payload.send = true;
@@ -585,6 +608,13 @@ program
   }));
 
 // ─── Forward ──────────────────────────────────────────────────────────
+
+program.command("inspect-compose <tabId>")
+  .description("Inspect an unsent composer, reply linkage and attachments")
+  .action(run(async tabId => {
+    const g = program.opts();
+    output(await api("GET", `/compose/${parseCount(tabId)}`, null, getTimeout(g)), g.format, getOutputOpts(g));
+  }));
 
 program
   .command("forward <messageId>")

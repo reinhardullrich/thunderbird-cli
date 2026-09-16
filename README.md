@@ -14,6 +14,10 @@ Deletion and emptying Trash are not implemented and cannot be enabled. Use
 the move command with a Trash folder ID to move mail to Trash.
 Upstream signed binaries linked below do not contain this fork's changes.
 
+For one authenticated CLI-only installation, use [local setup](docs/LOCAL-SETUP.md).
+It includes the bridge service, private XPI builder, attachments on new drafts and
+replies, native quotation preservation, sender/recipient selection and draft inspection.
+
 [![tests](https://github.com/vitalio-sh/thunderbird-cli/actions/workflows/test.yml/badge.svg)](https://github.com/vitalio-sh/thunderbird-cli/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)

@@ -54,6 +54,10 @@ function authorizeRequest(method, path, body = {}) {
   const requireAccess = key => {
     if (!ACCESS_POLICY[key]) throw Object.assign(new Error(`FORBIDDEN: access setting '${key}' is disabled`), { code: "FORBIDDEN" });
   };
+  if (method === "GET" && /^\/compose\/\d+$/.test(path)) {
+    requireAccess("compose");
+    return;
+  }
   if (method === "GET" && /^\/(health|access|accounts(?:\/[^/]+(?:\/folders)?)?|identities|stats|tags|contacts(?:\/[^/]+)?|messages\/\d+(?:\/(raw|headers|full|check-download|download-status|attachments|thread))?)$/.test(path)) return;
   if (method === "POST" && READ_POST_PATHS.has(path)) return;
   if (method === "POST" && /^\/messages\/\d+\/attachment$/.test(path)) {

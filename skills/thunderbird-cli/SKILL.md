@@ -85,6 +85,10 @@ labelled `threadMatch: "subject"`.
 Replies retain Thunderbird's generated quotation. Review recipients and the
 sending identity before sending. MCP replies accept plain text; the CLI also
 has `reply --html`. Attachment download returns base64 data, not a saved file.
+For CLI-only use, `compose` and `reply` accept repeatable `--attach /absolute/file`.
+Replies accept `--from IDENTITY_ID` and an explicit `--to` override (clears Cc/Bcc).
+Plain-text reply input preserves the native quotation's HTML/plain format.
+Use `inspect-compose TAB_ID` to verify reply linkage, recipients and attachments.
 Use an explicitly chosen output path when saving; never trust attachment names
 as paths. The CLI's attachment-download refuses overwrites.
 

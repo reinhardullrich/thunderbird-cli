@@ -6,7 +6,8 @@
  * Handles requests using messenger.* APIs.
  */
 
-const WS_URL = "ws://127.0.0.1:7701";
+const WS_URL = "ws://127.0.0.1:7701" + (globalThis.TB_BRIDGE_TOKEN
+  ? "/?token=" + encodeURIComponent(globalThis.TB_BRIDGE_TOKEN) : "");
 // Reconnect backoff while the bridge is absent: 3s, 6s, 12s, then every 15s. Cuts idle wakeups
 // without making a freshly started bridge wait long for the extension.
 const RECONNECT_BASE_MS = 3000;
@@ -120,6 +121,12 @@ async function handleRequest({ method, path, body }) {
     }
   }
   authorizeRequest(method, path, body);
+  const composeMatch = path.match(/^\/compose\/(\d+)$/);
+  if (composeMatch && method === "GET") {
+    const tabId = Number(composeMatch[1]);
+    return { ...await messenger.compose.getComposeDetails(tabId),
+      attachments: await messenger.compose.listAttachments(tabId) };
+  }
   if (path === "/access" && method === "GET") {
     return { read: true, policy: ACCESS_POLICY };
   }
@@ -501,7 +508,7 @@ async function handleRequest({ method, path, body }) {
     const { to, cc, bcc, subject, body: msgBody, isHTML = false,
             identityId, send = false, draft = false, open = false,
             priority, header } = body;
-    const details = {};
+    const details = { attachments: decodeAttachments(body.attachments) };
     if (to) details.to = Array.isArray(to) ? to : [to];
     if (cc) details.cc = Array.isArray(cc) ? cc : [cc];
     if (bcc) details.bcc = Array.isArray(bcc) ? bcc : [bcc];
@@ -533,20 +540,42 @@ async function handleRequest({ method, path, body }) {
 
   if (path === "/reply" && method === "POST") {
     const { messageId, body: replyBody = "", replyAll = false, isHTML = false,
-            send = false, draft = false, open = false } = body;
-    if (typeof replyBody !== "string") throw new Error("INVALID_ARGS: reply body must be a string");
+            send = false, draft = false, open = false, identityId, to } = body;
+    if (!Number.isSafeInteger(messageId) || messageId <= 0 || typeof replyBody !== "string") {
+      throw new Error("INVALID_ARGS: positive messageId and string body required");
+    }
+    if (to !== undefined && (!Array.isArray(to) || !to.length ||
+        to.some(a => typeof a !== "string" || !a.includes("@") || /[\r\n]/.test(a)))) {
+      throw new Error("INVALID_ARGS: to must be a nonempty address list");
+    }
+    const attachments = decodeAttachments(body.attachments);
     const type = replyAll ? "replyToAll" : "replyToSender";
-    const tab = await messenger.compose.beginReply(messageId, type, { isPlainText: !isHTML });
+    const details = identityId ? { identityId } : {};
+    if (isHTML) details.isPlainText = false;
+    const tab = await messenger.compose.beginReply(messageId, type, details);
     try {
       const original = await messenger.compose.getComposeDetails(tab.id);
-      if (isHTML) {
+      const update = {};
+      if (!original.isPlainText) {
         const doc = new DOMParser().parseFromString(original.body, "text/html");
         const intro = doc.createElement("div");
-        intro.innerHTML = replyBody;
+        if (isHTML) intro.innerHTML = replyBody;
+        else for (const paragraph of replyBody.trim().split(/\n\s*\n/)) {
+          const p = doc.createElement("p");
+          p.textContent = paragraph.replace(/\s*\n\s*/g, " ");
+          intro.append(p);
+        }
         doc.body.prepend(intro);
-        await messenger.compose.setComposeDetails(tab.id, { body: doc.documentElement.outerHTML });
+        update.body = doc.documentElement.outerHTML;
       } else {
-        await messenger.compose.setComposeDetails(tab.id, { plainTextBody: replyBody + "\n\n" + original.plainTextBody });
+        update.plainTextBody = replyBody + "\n\n" + original.plainTextBody;
+      }
+      if (to !== undefined) Object.assign(update, { to, cc: [], bcc: [] });
+      await messenger.compose.setComposeDetails(tab.id, update);
+      for (const attachment of attachments) await messenger.compose.addAttachment(tab.id, attachment);
+      const result = await messenger.compose.getComposeDetails(tab.id);
+      if (result.type !== "reply" || result.relatedMessageId !== messageId) {
+        throw new Error("Reply metadata verification failed");
       }
     } catch (error) {
       throw new Error(`Reply tab ${tab.id} is open but preparation failed; inspect it before retrying: ${error.message}`);
@@ -736,6 +765,27 @@ async function handleRequest({ method, path, body }) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
+
+function decodeAttachments(attachments = []) {
+  if (!Array.isArray(attachments)) throw new Error("INVALID_ARGS: attachments must be a list");
+  let total = 0;
+  return attachments.map(attachment => {
+    const { name, data, type = "application/octet-stream" } = attachment || {};
+    if (typeof name !== "string" || !name || /[\\/\r\n]/.test(name) ||
+        typeof data !== "string" || data.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(data) ||
+        typeof type !== "string") throw new Error("INVALID_ARGS: invalid attachment");
+    if (data.length > Math.ceil((25 * 1024 * 1024 - total) / 3) * 4) {
+      throw new Error("INVALID_ARGS: attachments exceed 25 MiB");
+    }
+    let decoded;
+    try { decoded = atob(data); }
+    catch { throw new Error("INVALID_ARGS: invalid attachment base64"); }
+    const bytes = Uint8Array.from(decoded, c => c.charCodeAt(0));
+    total += bytes.length;
+    if (total > 25 * 1024 * 1024) throw new Error("INVALID_ARGS: attachments exceed 25 MiB");
+    return { file: new File([bytes], name, { type }), name };
+  });
+}
 
 function formatMessage(msg) {
   return {

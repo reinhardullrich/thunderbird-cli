@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bundled older upstream signed XPIs with full-access deletion code; build this fork rather than installing those stale artifacts.
 
 ### Added
+- Consolidated authenticated local installation: shared HTTP/WebSocket token, generated user service, private XPI builds with stable output and preserved add-on identity, repeatable compose/reply attachments, reply sender/recipient selection, and composer inspection. Plain reply input retains native HTML/plain quotation format. Native decoding validates attachments up to the 25 MiB limit without a recursive regex.
 - Add-on-enforced JSON access policy shared by CLI and optional MCP: always-on reading/searching, switchable attachment downloads (on by default), draft preparation, and separately gated sending/mailbox operations. XPI builds validate settings and derive native permissions; `tb access` reports the installed policy. Existing installed or signed upstream add-ons are unchanged.
 
 ### Fixed
