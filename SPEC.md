@@ -406,6 +406,13 @@ tb forward <messageId> [options]
   --send
 ```
 
+Replies and inline forwards insert the new text into the existing native editor;
+they do not replace the quoted body. Composer inspection includes inline image
+load state and natural dimensions.
+
+Forwards use native inline forwarding, retaining the original body, attachments
+and forward linkage. Additional text is prepended to that native body.
+
 ### 13. Attachments
 
 ```bash

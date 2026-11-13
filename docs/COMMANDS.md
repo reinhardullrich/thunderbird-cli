@@ -182,9 +182,16 @@ tb forward <messageId> [options]
   --draft / --open / --send
 ```
 
+HTML replies and forwards preserve native quote/image nodes by inserting only the new text. `inspect-compose` includes `inlineImages` with load state and natural dimensions.
+
 Replies prepend the supplied text to Thunderbird's generated reply body, keeping
 its quotation and reply metadata. If preparation fails after opening a window,
 the error identifies that window; inspect it before retrying.
+
+Forwards use Thunderbird's native inline forward: the original message is visible
+in the body and its attachments are retained. Supplied text is prepended without
+replacing the original HTML or plain text. A preparation error identifies the open
+window; inspect it before retrying.
 
 ## Attachments
 

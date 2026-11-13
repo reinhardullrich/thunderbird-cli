@@ -90,6 +90,27 @@ function scheduleReconnect() {
   }, delay);
 }
 
+// Insert only new text: rebuilding the whole quote loses native inline-image state.
+async function prependComposeContent(tabId, content, isPlainText = false) {
+  function insert(content, isPlainText) {
+    const range = document.createRange();
+    range.selectNodeContents(document.body);
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.body.focus();
+    if (!document.execCommand(isPlainText ? "insertText" : "insertHTML", false, content)) {
+      throw new Error("Could not insert text into the native compose editor");
+    }
+    return true;
+  }
+  const result = await messenger.tabs.executeScript(tabId, {
+    code: `(${insert.toString()})(${JSON.stringify(content)}, ${JSON.stringify(isPlainText)})`,
+  });
+  if (result.length !== 1 || result[0] !== true) throw new Error("Compose insertion was not confirmed");
+}
+
 // Start connection
 connect();
 
@@ -124,7 +145,14 @@ async function handleRequest({ method, path, body }) {
   const composeMatch = path.match(/^\/compose\/(\d+)$/);
   if (composeMatch && method === "GET") {
     const tabId = Number(composeMatch[1]);
-    return { ...await messenger.compose.getComposeDetails(tabId),
+    const details = await messenger.compose.getComposeDetails(tabId);
+    const [inlineImages] = await messenger.tabs.executeScript(tabId, {
+      code: `Array.from(document.images, image => ({
+        src: image.getAttribute("src"), complete: image.complete,
+        naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight
+      }))`,
+    });
+    return { ...details, inlineImages,
       attachments: await messenger.compose.listAttachments(tabId) };
   }
   if (path === "/access" && method === "GET") {
@@ -538,22 +566,22 @@ async function handleRequest({ method, path, body }) {
     try {
       const original = await messenger.compose.getComposeDetails(tab.id);
       const update = {};
-      if (!original.isPlainText) {
-        const doc = new DOMParser().parseFromString(original.body, "text/html");
+      if (replyBody && !original.isPlainText) {
+        const doc = new DOMParser().parseFromString("", "text/html");
         const intro = doc.createElement("div");
         if (isHTML) intro.innerHTML = replyBody;
         else for (const paragraph of replyBody.trim().split(/\n\s*\n/)) {
           const p = doc.createElement("p");
-          p.textContent = paragraph.replace(/\s*\n\s*/g, " ");
+          p.textContent = paragraph;
+          p.style.whiteSpace = "pre-wrap";
           intro.append(p);
         }
-        doc.body.prepend(intro);
-        update.body = doc.documentElement.outerHTML;
-      } else {
-        update.plainTextBody = replyBody + "\n\n" + original.plainTextBody;
+        await prependComposeContent(tab.id, intro.outerHTML);
+      } else if (replyBody) {
+        await prependComposeContent(tab.id, replyBody + "\n\n", true);
       }
       if (to !== undefined) Object.assign(update, { to, cc: [], bcc: [] });
-      await messenger.compose.setComposeDetails(tab.id, update);
+      if (Object.keys(update).length) await messenger.compose.setComposeDetails(tab.id, update);
       for (const attachment of attachments) await messenger.compose.addAttachment(tab.id, attachment);
       const result = await messenger.compose.getComposeDetails(tab.id);
       if (result.type !== "reply" || result.relatedMessageId !== messageId) {
@@ -578,12 +606,36 @@ async function handleRequest({ method, path, body }) {
   // ─── Forward ────────────────────────────────────────────────────
 
   if (path === "/forward" && method === "POST") {
-    const { messageId, to, body: fwdBody,
+    const { messageId, to, body: fwdBody = "",
             send = false, draft = false, open = false } = body;
+    const recipients = Array.isArray(to) ? to : [to];
+    if (!Number.isSafeInteger(messageId) || messageId <= 0 || typeof fwdBody !== "string" ||
+        !recipients.length || recipients.some(a => typeof a !== "string" || !a.includes("@") || /[\r\n]/.test(a))) {
+      throw new Error("INVALID_ARGS: positive messageId, recipient addresses and string body required");
+    }
     const tab = await messenger.compose.beginForward(
-      messageId, "forwardAsAttachment",
-      { to: Array.isArray(to) ? to : [to], isPlainText: true, plainTextBody: fwdBody || "" }
+      messageId, "forwardInline", { to: recipients, cc: [], bcc: [] }
     );
+    try {
+      const original = await messenger.compose.getComposeDetails(tab.id);
+      if (fwdBody) {
+        if (original.isPlainText) {
+          await prependComposeContent(tab.id, fwdBody + "\n\n", true);
+        } else {
+          const doc = new DOMParser().parseFromString("", "text/html");
+          const intro = doc.createElement("div");
+          intro.textContent = fwdBody;
+          intro.setAttribute("style", "white-space: pre-wrap; margin-bottom: 1em");
+          await prependComposeContent(tab.id, intro.outerHTML);
+        }
+      }
+      const result = await messenger.compose.getComposeDetails(tab.id);
+      if (result.type !== "forward" || result.relatedMessageId !== messageId) {
+        throw new Error("Forward metadata verification failed");
+      }
+    } catch (error) {
+      throw new Error(`Forward tab ${tab.id} is open but preparation failed; inspect it before retrying: ${error.message}`);
+    }
     if (send) {
       await messenger.compose.sendMessage(tab.id, { mode: "sendNow" });
       return { success: true, action: "sent" };

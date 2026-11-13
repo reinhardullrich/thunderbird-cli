@@ -175,7 +175,8 @@ await test('extension rejects malformed IDs and non-boolean operation flags befo
   }
 });
 await test('reply preserves native quotation and refuses to send after preparation failure', async () => {
-  let opened, updated, sent = 0;
+  let opened, updated, insertion, sent = 0;
+  messenger.tabs = { executeScript: async (_id, { code }) => { insertion = code; return [true]; } };
   messenger.compose = {
     beginReply: async (...args) => { opened = args; return { id: 7 }; },
     getComposeDetails: async () => ({ type: 'reply', relatedMessageId: 1, plainTextBody: 'Original quotation', isPlainText: true }),
@@ -184,8 +185,9 @@ await test('reply preserves native quotation and refuses to send after preparati
   };
   const r = await handle('POST', '/reply', { messageId: 1, body: 'Answer', open: true });
   assert.equal(r.tabId, 7); assert.equal(opened[0], 1); assert.equal(opened[2].plainTextBody, undefined);
-  assert.equal(updated.plainTextBody, 'Answer\n\nOriginal quotation'); assert.equal(sent, 0);
-  messenger.compose.setComposeDetails = async () => { throw Error('preparation failure'); };
+  assert.equal(updated, undefined); assert(insertion.includes(JSON.stringify('Answer\n\n')));
+  assert(!insertion.includes('Original quotation')); assert.equal(sent, 0);
+  messenger.tabs.executeScript = async () => { throw Error('preparation failure'); };
   await assert.rejects(handle('POST', '/reply', { messageId: 1, body: 'Answer', send: true }), /tab 7.*inspect it/);
   assert.equal(sent, 0);
 });
@@ -199,11 +201,11 @@ await test('compose uses native priority and forwards custom headers', async () 
 });
 await test('HTML reply prepends content inside the native document without replacing its quotation', async () => {
   let details, parsed, inserted, opened;
+  messenger.tabs = { executeScript: async (_id, { code }) => { inserted = code; return [true]; } };
   ctx.DOMParser = class {
     parseFromString(html, type) {
       parsed = { html, type };
-      return { createElement: () => ({}), body: { prepend: node => { inserted = node.innerHTML; } },
-        documentElement: { get outerHTML() { return `<html><body><div>${inserted}</div>${html}</body></html>`; } } };
+      return { createElement: () => ({ get outerHTML() { return `<div>${this.innerHTML}</div>`; } }) };
     }
   };
   messenger.compose.beginReply = async (_id, _type, d) => { opened = d; return { id: 7 }; };
@@ -211,8 +213,8 @@ await test('HTML reply prepends content inside the native document without repla
   messenger.compose.setComposeDetails = async (_id, d) => { details = d; };
   await handle('POST', '/reply', { messageId: 1, body: '<b>Answer</b>', isHTML: true, open: true });
   assert.equal(opened.isPlainText, false); assert.equal(parsed.type, 'text/html');
-  assert.equal(parsed.html, '<blockquote>Quote</blockquote>'); assert.equal(inserted, '<b>Answer</b>');
-  assert.equal(details.body, '<html><body><div><b>Answer</b></div><blockquote>Quote</blockquote></body></html>');
+  assert.equal(parsed.html, ''); assert(inserted.includes('<div><b>Answer</b></div>'));
+  assert(!inserted.includes('<blockquote>')); assert.equal(details, undefined);
 });
 await test('bulk filters and already-tagged messages are skipped before limiting', async () => {
   const saved = messenger.messages.continueList;
