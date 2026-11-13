@@ -52,8 +52,8 @@ add-on. Reconnection uses backoff; do not promise an immediate connection.
 Examples below are tool argument objects, not shell commands:
 
 - `email_search({"from":"sender@example.org","since":"7d","limit":20})`
-- `email_search({"query":"invoice","limit":20})`: query searches message bodies;
-  use `subject` for a subject filter. A query or at least one active filter is required.
+- `email_search({"query":"invoice","limit":20})`: searches subject, sender or body.
+  Use `searchMode:"body"` for bodies only. A query or at least one active filter is required.
 - `email_list({"folderId":"<returned ID>","sort":"date","sortOrder":"desc","offset":0,"limit":20})`
 - `email_read({"messageId":123,"mode":"full","maxBody":2000})`
 - `email_thread({"messageId":123})`
@@ -61,6 +61,10 @@ Examples below are tool argument objects, not shell commands:
 Search uses camelCase names: `accountId`, `folderId`, `hasAttachment`,
 `sizeMin`, `sizeMax`, `includeJunk`. Junk is excluded unless `includeJunk:true`.
 This is not an injection guarantee: legitimate folders may contain hostile mail.
+Full-text search does not use the Gloda index and can still be slow. Errors never
+trigger an automatic body-only retry. CLI equivalents are `tb search invoice`
+and `tb search invoice --body-only`.
+Headers include UTC `date` and `dateLocal` with Thunderbird's local UTC offset.
 
 Read modes: `default`, `headers`, `full`, `raw`, `check-download`.
 There is no MCP `body-only` mode, global `fields`, or `compact` argument.

@@ -201,6 +201,7 @@ tb list <folderId> [options]
 ```bash
 # Full-text search across all accounts
 tb search <query> [options]
+  --body-only          # search bodies only; default is subject, sender or body
   --account <id>       # limit to account
   --folder <id>        # limit to folder
   --from <address>     # filter by sender
@@ -220,6 +221,19 @@ tb search <query> [options]
 # Date shortcuts for --since:
 #   "today", "yesterday", "7d", "30d", "2w", "3m", "1y"
 ```
+
+The API accepts `searchMode: "fulltext"` (default) or `"body"`. These map to
+Thunderbird's `fullText` and `body` query fields. Full text is not an indexed
+Gloda search. Other filters remain additional requirements. Errors propagate
+without a body-only fallback; successful text queries report `searchMode`.
+MCP exposes the same `searchMode` enum. An empty query with filters skips text
+matching.
+
+Formatted headers include both UTC `date` and `dateLocal`, an ISO timestamp
+with Thunderbird's local offset at the message date. Raw content stays unchanged.
+CLI and MCP validate request paths before URL normalization. HTTP errors preserve
+explicit codes and distinguish missing resources, disconnected extensions and
+timeouts; a timeout does not cancel the native operation.
 
 ### 6. Messages — Reading
 

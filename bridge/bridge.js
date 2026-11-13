@@ -180,7 +180,7 @@ wss.on("connection", (ws) => {
       extensionSocket = null;
       for (const p of pending.values()) {
         clearTimeout(p.timer);
-        p.reject({ message: "Thunderbird extension not connected; request outcome is unknown. Inspect drafts before retrying." });
+        p.reject({ code: "EXTENSION_DISCONNECTED", message: "Thunderbird extension not connected; request outcome is unknown. Inspect drafts before retrying." });
       }
       pending.clear();
     }
@@ -209,13 +209,13 @@ wss.on("close", () => {
 function forwardToExtension(method, path, body, timeoutMs = DEFAULT_TIMEOUT) {
   return new Promise((resolve, reject) => {
     if (!extensionSocket || extensionSocket.readyState !== 1) {
-      reject({ message: "Thunderbird extension not connected. Is Thunderbird running?" });
+      reject({ code: "EXTENSION_DISCONNECTED", message: "Thunderbird extension not connected. Is Thunderbird running?" });
       return;
     }
     const id = randomUUID();
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject({ message: `Request timed out (${Math.round(timeoutMs / 1000)}s)` });
+      reject({ code: "TIMEOUT", message: `Request timed out (${Math.round(timeoutMs / 1000)}s); Thunderbird may still be processing it. Inspect drafts before retrying.` });
     }, timeoutMs);
     pending.set(id, { resolve, reject, timer });
     extensionSocket.send(JSON.stringify({ id, method, path, body }));
@@ -336,7 +336,8 @@ const httpServer = createServer(async (req, res) => {
     res.writeHead(200);
     res.end(JSON.stringify(result));
   } catch (err) {
-    const status = err.code === "FORBIDDEN" ? 403 : err.message?.includes("not connected") ? 503 : 500;
+    const status = { FORBIDDEN: 403, INVALID_ARGS: 400, NOT_FOUND: 404,
+      EXTENSION_DISCONNECTED: 503, TIMEOUT: 504 }[err.code] || 500;
     res.writeHead(status);
     res.end(JSON.stringify({ error: err.message || "Unknown error", code: err.code }));
   }

@@ -53,8 +53,9 @@ export const tools = [
       properties: {
         query: {
           type: "string",
-          description: "Full-text search query (searches body). Optional when at least one filter is given",
+          description: "Search subject, sender or body. Optional when at least one filter is given",
         },
+        searchMode: { type: "string", enum: ["fulltext", "body"], default: "fulltext", description: "Use body to search only message bodies" },
         accountId: { type: "string", description: "Limit to specific account" },
         folderId: { type: "string", description: "Limit to specific folder" },
         from: { type: "string", description: "Filter by sender address" },
@@ -81,6 +82,9 @@ export const tools = [
     },
     handler: async (args, api) => {
       const query = args.query?.trim();
+      if (args.searchMode !== undefined && !["fulltext", "body"].includes(args.searchMode)) {
+        throw Object.assign(new Error("searchMode must be fulltext or body"), { code: "INVALID_ARGS" });
+      }
       const hasFilter = [
         "accountId", "folderId", "from", "to", "subject", "flagged",
         "tag", "since", "until", "sizeMin", "sizeMax",
@@ -93,6 +97,7 @@ export const tools = [
       }
       const body = { limit: args.limit ?? 25 };
       if (query) body.query = query;
+      if (args.searchMode !== undefined) body.searchMode = args.searchMode;
       if (args.accountId) body.accountId = args.accountId;
       if (args.folderId) body.folderId = args.folderId;
       if (args.from) body.fromAddress = args.from;

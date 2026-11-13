@@ -45,6 +45,12 @@ try {
   let forwarded = 0;
   socket.on('message', raw => {
     const m = JSON.parse(raw); forwarded++;
+    if (m.path === '/test-timeout') return;
+    if (m.path === '/test-disconnect') { socket.close(); return; }
+    if (m.path === '/test-not-found') {
+      socket.send(JSON.stringify({ id: m.id, error: { message: 'Message not found', code: 'NOT_FOUND' } }));
+      return;
+    }
     socket.send(JSON.stringify({ id: m.id, result: m.body }));
   });
   await new Promise((resolve, reject) => {
@@ -113,6 +119,16 @@ try {
   assert.equal(payload.attachments[0].name, 'quick-test.mjs');
   assert(Buffer.from(payload.attachments[0].data, 'base64').equals(fs.readFileSync(root + 'test/quick-test.mjs')));
   console.log('PASS: actual CLI preserves reply ID, identity, recipient, open mode and attachment bytes');
+
+  for (const [path, expectedStatus, expectedCode] of [
+    ['/test-not-found', 404, 'NOT_FOUND'], ['/test-timeout', 504, 'TIMEOUT'],
+    ['/test-disconnect', 503, 'EXTENSION_DISCONNECTED'], ['/after-disconnect', 503, 'EXTENSION_DISCONNECTED'],
+  ]) {
+    const response = await fetch(url + path, { headers: { ...headers, 'X-TB-Timeout': '50' } });
+    assert.equal(response.status, expectedStatus);
+    assert.equal((await response.json()).code, expectedCode);
+  }
+  console.log('PASS: real bridge reports timeout, missing resources and disconnection with stable codes');
 
   fs.mkdirSync(root + 'local-runtime', { recursive: true, mode: 0o700 });
   fixture = fs.mkdtempSync(root + 'local-runtime/build-test-');

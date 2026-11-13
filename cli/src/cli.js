@@ -234,7 +234,8 @@ program
 
 program
   .command("search <query>")
-  .description("Search messages across all accounts")
+  .description("Search subject, sender and body across all accounts")
+  .option("--body-only", "search only message bodies")
   .option("-a, --account <id>", "limit to specific account")
   .option("--folder <id>", "limit to specific folder")
   .option("--from <address>", "filter by sender")
@@ -255,6 +256,7 @@ program
     const body = {
       query,
       limit: parseInt(opts.limit),
+      searchMode: opts.bodyOnly ? "body" : "fulltext",
     };
     if (opts.account) body.accountId = opts.account;
     if (opts.folder) body.folderId = opts.folder;

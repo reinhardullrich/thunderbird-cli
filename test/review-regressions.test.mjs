@@ -19,6 +19,12 @@ await test('MCP search preserves zero limit, size bounds and false flagged', asy
   assert.deepEqual(p, { limit: 0, flagged: false, sizeMin: 0, sizeMax: 0 });
 });
 await test('MCP list preserves zero limit', async () => assert.equal((await tool('email_list', { folderId: 'test', limit: 0 })).limit, 0));
+await test('MCP forwards and validates explicit search modes', async () => {
+  for (const searchMode of ['body', 'fulltext']) {
+    assert.equal((await tool('email_search', { query: 'invoice', searchMode })).searchMode, searchMode);
+  }
+  await assert.rejects(tool('email_search', { query: 'invoice', searchMode: 'indexed' }), e => e.code === 'INVALID_ARGS');
+});
 await test('disabled MCP switches do not count as a search filter', async () => {
   await assert.rejects(tool('email_search', { unread: false, hasAttachment: false }), /requires a query/);
 });
@@ -36,6 +42,48 @@ try {
     });
   }
 } finally { globalThis.fetch = originalFetch; }
+await test('both clients reject unsafe paths before making any HTTP request', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; return { status: 200, json: async () => ({}) }; };
+  try {
+    for (const module of ['../cli/src/client.js', '../mcp/src/client.js']) {
+      const { api } = await import(module);
+      for (const path of ['relative', '//host/health', '/accounts/../health', '/accounts/./folders',
+        '/accounts/%2e%2e/health', '/accounts/.%2e/health', '/accounts/..\\health',
+        '/accounts/%2e%2e%2fhealth', '/accounts/test?x/folders', '/accounts/test#x/folders',
+        '/accounts/test%3fx/folders', '/accounts/test\n/folders', '/accounts/%ZZ/folders', null]) {
+        await assert.rejects(api('GET', path), e => e.code === 'INVALID_ARGS');
+      }
+      assert.equal(calls, 0);
+    }
+    for (const module of ['../cli/src/client.js', '../mcp/src/client.js']) {
+      for (const path of ['/health', '/accounts/account1/folders', '/messages/42/headers', '/contacts/a-b.c']) {
+        await (await import(module)).api('GET', path);
+      }
+    }
+    assert.equal(calls, 8);
+  } finally { globalThis.fetch = originalFetch; }
+});
+await test('both clients retain useful HTTP and extension error codes', async () => {
+  try {
+    for (const module of ['../cli/src/client.js', '../mcp/src/client.js']) {
+      const { api } = await import(module);
+      for (const [status, data, expected] of [
+        [504, {}, 'TIMEOUT'], [503, {}, 'EXTENSION_DISCONNECTED'], [404, {}, 'NOT_FOUND'],
+        [400, {}, 'INVALID_ARGS'], [401, {}, 'AUTH_REQUIRED'], [403, {}, 'FORBIDDEN'],
+        [200, { error: 'Folder not found' }, 'NOT_FOUND'],
+        [500, { error: 'Message not found: 42.' }, 'NOT_FOUND'],
+        [500, { error: 'Failure' }, 'THUNDERBIRD_ERROR'],
+        [500, { error: 'Not found', code: 'FORBIDDEN' }, 'FORBIDDEN'],
+      ]) {
+        globalThis.fetch = async () => ({ status, json: async () => data });
+        await assert.rejects(api('GET', '/test'), e => e.code === expected);
+      }
+      globalThis.fetch = async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); };
+      await assert.rejects(api('GET', '/test'), e => e.code === 'TIMEOUT' && /still be processing/.test(e.message));
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
 await test('HTTP failures with a null JSON body retain their status', async () => {
   globalThis.fetch = async () => ({ status: 503, json: async () => null });
   try {
@@ -70,6 +118,47 @@ const ctx = vm.createContext({ messenger, console, WebSocket: class {}, setTimeo
 ctx.TB_ACCESS_CONFIG = { send: true, tag: true };
 for (const file of ['access-control.js', 'thread-utils.js', 'background.js']) vm.runInContext(fs.readFileSync(new URL('../extension/src/' + file, import.meta.url), 'utf8'), ctx);
 const handle = (method, path, body) => ctx.handleRequest({ method, path, body });
+await test('search defaults to fullText, preserves filters and never retries failed searches', async () => {
+  const savedQuery = messenger.messages.query;
+  let queries = [];
+  messenger.messages.query = async q => { queries.push(q); return { messages: [header(1)] }; };
+  try {
+    for (const searchMode of [undefined, 'fulltext', 'body']) {
+      const result = await handle('POST', '/messages/search', { query: 'invoice', searchMode,
+        fromAddress: 'sender', toAddress: 'recipient', subject: 'subject', limit: 25 });
+      const q = queries.at(-1);
+      assert.equal(q[searchMode === 'body' ? 'body' : 'fullText'], 'invoice');
+      assert.equal(q[searchMode === 'body' ? 'fullText' : 'body'], undefined);
+      assert.equal(q.author, 'sender'); assert.equal(q.recipients, 'recipient');
+      assert.equal(q.subject, 'subject'); assert.equal(q.junk, false);
+      assert.equal(result.searchMode, searchMode || 'fulltext');
+    }
+    const result = await handle('POST', '/messages/search', { query: '', subject: 'invoice' });
+    assert.equal(queries.at(-1).body, undefined); assert.equal(queries.at(-1).fullText, undefined);
+    assert.equal(result.searchMode, undefined);
+    for (const body of [{ query: 42 }, { query: 'x', searchMode: 'indexed' }, { searchMode: null }]) {
+      await assert.rejects(handle('POST', '/messages/search', body), e => e.code === 'INVALID_ARGS');
+    }
+    queries = [];
+    const failure = new Error('Native search failure');
+    messenger.messages.query = async q => { queries.push(q); throw failure; };
+    await assert.rejects(handle('POST', '/messages/search', { query: 'invoice' }), e => e === failure);
+    assert.equal(queries.length, 1);
+    assert.equal(queries[0].fullText, 'invoice');
+  } finally { messenger.messages.query = savedQuery; }
+});
+await test('message dates preserve UTC and add local time with positive, negative and zero offsets', async () => {
+  for (const [offset, expected] of [[-120, '2026-01-02T01:30:00.123+02:00'],
+    [-180, '2026-01-02T02:30:00.123+03:00'], [-330, '2026-01-02T05:00:00.123+05:30'],
+    [360, '2026-01-01T17:30:00.123-06:00'], [0, '2026-01-01T23:30:00.123+00:00']]) {
+    const date = new Date('2026-01-01T23:30:00.123Z');
+    date.getTimezoneOffset = () => offset;
+    const formatted = ctx.formatMessage({ ...header(1), date });
+    assert.equal(formatted.date, date.toISOString()); assert.equal(formatted.dateLocal, expected);
+    assert.equal(Date.parse(formatted.dateLocal), date.getTime());
+  }
+  assert.equal(ctx.formatMessage({ id: 1 }).dateLocal, undefined);
+});
 await test('account roots skip native counts while real-folder failures propagate', async () => {
   const savedFolders = messenger.folders, savedAccounts = messenger.accounts;
   const leaf = { id: 'leaf', name: 'Leaf', isRoot: false };
@@ -278,6 +367,14 @@ async function cli(args) {
   const [code] = await once(p, 'exit'); return { code, stdout, stderr };
 }
 try {
+  await test('CLI forwards default and body-only searches, including metadata-only requests', async () => {
+    for (const [args, expected] of [[['search', 'invoice'], 'fulltext'],
+      [['search', 'invoice', '--body-only'], 'body'], [['search', '', '--subject', 'invoice'], 'fulltext']]) {
+      const r = await cli(args);
+      assert.equal(r.code, 0, r.stderr); assert.equal(lastBody.searchMode, expected);
+      assert.equal(lastBody.query, args[1]);
+    }
+  });
   await test('actual CLI body-only output obeys max-body without changing short or uncapped output', async () => {
     for (const [limit, expected] of [[10, 'x'.repeat(10) + '\n...[truncated]'], [2000, 'x'.repeat(2000)], [null, 'x'.repeat(2000)]]) {
       const r = await cli([...(limit === null ? [] : ['--max-body', String(limit)]), 'read', '1', '--body-only']);

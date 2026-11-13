@@ -59,6 +59,7 @@ tb stats --folders         # include per-folder breakdown
 
 ```bash
 tb search <query> [options]
+  --body-only             # search only bodies instead of subject, sender or body
   -a, --account <id>       # limit to account
   --folder <id>            # limit to folder
   --from <address>         # filter by sender
@@ -75,6 +76,22 @@ tb search <query> [options]
   --include-junk           # include junk (excluded by default)
   -l, --limit <n>          # max results (default: 25)
 ```
+
+The default searches subject, sender or body through Thunderbird's `fullText`
+query. This is not the Gloda index; searches may still read many message bodies.
+Use `''` with filters for metadata-only searches. Filters are additional
+requirements; recipients and attachment contents are not part of the general
+text query. Failed searches report an error, never retry with narrower results.
+Text searches return `searchMode` (`fulltext` or `body`).
+
+Formatted message headers retain `date` in UTC and add `dateLocal` in
+Thunderbird's local time zone, with the offset for that message date (including
+daylight saving time). Raw messages are unchanged.
+
+Clients report `TIMEOUT`, `EXTENSION_DISCONNECTED` and `NOT_FOUND` separately.
+A timeout does not cancel work already running in Thunderbird; inspect drafts
+before retrying a compose operation. Unsafe request paths fail with `INVALID_ARGS`
+before any HTTP request.
 
 ## List Messages
 

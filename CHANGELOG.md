@@ -12,10 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bundled older upstream signed XPIs with full-access deletion code; build this fork rather than installing those stale artifacts.
 
 ### Added
+- Message headers include `dateLocal` with Thunderbird's local UTC offset, alongside the unchanged UTC `date`.
 - Consolidated authenticated local installation: shared HTTP/WebSocket token, generated user service, private XPI builds with stable output and preserved add-on identity, repeatable compose/reply attachments, reply sender/recipient selection, and composer inspection. Plain reply input retains native HTML/plain quotation format. Native decoding validates attachments up to the 25 MiB limit without a recursive regex.
 - Add-on-enforced JSON access policy shared by CLI and optional MCP: always-on reading/searching, switchable attachment downloads (on by default), draft preparation, and separately gated sending/mailbox operations. XPI builds validate settings and derive native permissions; `tb access` reports the installed policy. Existing installed or signed upstream add-ons are unchanged.
 
 ### Fixed
+- General searches now match subject, sender or body by default, with explicit CLI `search --body-only` and MCP `searchMode: "body"`. This uses native queries, not the Gloda index, and never silently retries a failed search in a narrower mode.
+- CLI and MCP reject unsafe request paths before HTTP; bridge and clients distinguish timeouts, disconnected extensions and missing resources. Timeout errors warn that native work may continue.
 - HTML replies and inline forwards insert new text into the native editor without rebuilding quoted image nodes. Composer inspection reports inline image load state.
 - Forwards now use Thunderbird native inline forwarding, retain the original body and attachments, and prepend the supplied note without replacing quoted content. Preparation failures identify the open composer.
 - Malformed WebSocket handshake URLs are rejected without crashing the bridge.

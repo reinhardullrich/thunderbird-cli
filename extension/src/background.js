@@ -245,9 +245,12 @@ async function handleRequest({ method, path, body }) {
     const { query, accountId, fromAddress, toAddress, subject,
             unreadOnly, flagged, limit = 25, fromDate, toDate,
             folderId, tag, hasAttachment, sizeMin, sizeMax,
-            includeJunk, headerMessageId } = body || {};
+            includeJunk, headerMessageId, searchMode = "fulltext" } = body || {};
+    if (!["fulltext", "body"].includes(searchMode) || (query !== undefined && typeof query !== "string")) {
+      throw Object.assign(new Error("query must be a string and searchMode must be fulltext or body"), { code: "INVALID_ARGS" });
+    }
     const q = {};
-    if (query) q.body = query;
+    if (query) q[searchMode === "body" ? "body" : "fullText"] = query;
     if (accountId) q.accountId = accountId;
     if (fromAddress) q.author = fromAddress;
     if (toAddress) q.recipients = toAddress;
@@ -267,9 +270,11 @@ async function handleRequest({ method, path, body }) {
       if (sizeMax != null) q.size.max = sizeMax;
     }
 
-    return await collectMessages(
+    const result = await collectMessages(
       () => messenger.messages.query(q), limit
     );
+    if (query) result.searchMode = searchMode;
+    return result;
   }
 
   // ─── List messages in folder ────────────────────────────────────
@@ -821,10 +826,19 @@ function decodeAttachments(attachments = []) {
   });
 }
 
+function toLocalIsoString(date) {
+  const offset = -date.getTimezoneOffset();
+  const local = new Date(date.getTime() + offset * 60000).toISOString().slice(0, -1);
+  const hours = String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0");
+  const minutes = String(Math.abs(offset) % 60).padStart(2, "0");
+  return `${local}${offset < 0 ? "-" : "+"}${hours}:${minutes}`;
+}
+
 function formatMessage(msg) {
   return {
     id: msg.id,
     date: msg.date?.toISOString(),
+    dateLocal: msg.date ? toLocalIsoString(msg.date) : undefined,
     author: msg.author,
     subject: msg.subject,
     read: msg.read,

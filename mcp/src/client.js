@@ -44,11 +44,23 @@ function loadConfig() {
 const config = loadConfig();
 const BASE_URL = `http://${config.host}:${config.port}`;
 
+// Reject URL syntax that could change the route before fetch sends it.
+function assertSafePath(path) {
+  let decoded;
+  try { decoded = decodeURIComponent(path); } catch {}
+  if (typeof path !== "string" || !path.startsWith("/") || decoded === undefined ||
+      [path, decoded].some(p => /[\\?#\s\x00-\x1f\x7f]/.test(p) || p.includes("//") ||
+        p.split("/").some(segment => segment === "." || segment === ".."))) {
+    throw Object.assign(new Error("Invalid request path"), { code: "INVALID_ARGS" });
+  }
+  return path;
+}
+
 /**
  * Make an HTTP call to the bridge daemon.
  */
 export async function api(method, path, body = null, timeout = 30000) {
-  const url = `${BASE_URL}${path}`;
+  const url = `${BASE_URL}${assertSafePath(path)}`;
   const headers = { "Content-Type": "application/json" };
   if (config.authToken) headers["Authorization"] = `Bearer ${config.authToken}`;
   // Tell the bridge how long it should wait for Thunderbird before giving up.
@@ -65,7 +77,7 @@ export async function api(method, path, body = null, timeout = 30000) {
     res = await fetch(url, opts);
   } catch (err) {
     if (err.name === "TimeoutError") {
-      throw Object.assign(new Error("Request timed out"), { code: "TIMEOUT" });
+      throw Object.assign(new Error("Request timed out; Thunderbird may still be processing it. Inspect drafts before retrying."), { code: "TIMEOUT" });
     }
     if (err.code === "ECONNREFUSED" || err.cause?.code === "ECONNREFUSED") {
       throw Object.assign(
@@ -83,8 +95,9 @@ export async function api(method, path, body = null, timeout = 30000) {
   const data = await res.json();
   if (res.status >= 400 || data?.error) {
     const err = new Error(data?.error || `HTTP ${res.status}`);
-    err.code =
-      data?.code || (res.status === 503 ? "EXTENSION_DISCONNECTED" : "THUNDERBIRD_ERROR");
+    err.code = data?.code || ({ 400: "INVALID_ARGS", 401: "AUTH_REQUIRED", 403: "FORBIDDEN",
+      404: "NOT_FOUND", 503: "EXTENSION_DISCONNECTED", 504: "TIMEOUT" }[res.status]) ||
+      (/not found/i.test(data?.error || "") ? "NOT_FOUND" : "THUNDERBIRD_ERROR");
     throw err;
   }
   return data;
